@@ -5,10 +5,11 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '@/constants/colors';
 
 type PlayScreenHeaderProps = {
+  showSettings?: boolean;
   title: string;
 };
 
-export function PlayScreenHeader({ title }: PlayScreenHeaderProps) {
+export function PlayScreenHeader({ showSettings = true, title }: PlayScreenHeaderProps) {
   return (
     <View style={styles.header}>
       <Pressable
@@ -26,18 +27,20 @@ export function PlayScreenHeader({ title }: PlayScreenHeaderProps) {
       <Text adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1} style={styles.title}>
         {title}
       </Text>
-      <Pressable
-        accessibilityLabel="Play settings"
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={() => Alert.alert('Play settings', 'Game preferences are coming next.')}
-        style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
-        <SymbolView
-          name={{ android: 'settings', ios: 'gearshape.fill', web: 'settings' }}
-          size={27}
-          tintColor={colors.sandstone}
-        />
-      </Pressable>
+      {showSettings ? (
+        <Pressable
+          accessibilityLabel="Play settings"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => Alert.alert('Play settings', 'Game preferences are coming next.')}
+          style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
+          <SymbolView
+            name={{ android: 'settings', ios: 'gearshape.fill', web: 'settings' }}
+            size={27}
+            tintColor={colors.sandstone}
+          />
+        </Pressable>
+      ) : <View style={styles.headerButton} />}
     </View>
   );
 }

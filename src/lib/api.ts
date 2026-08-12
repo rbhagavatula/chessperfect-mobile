@@ -29,12 +29,21 @@ export async function postJson<TResponse>(
   body: unknown,
   timeoutMs = 15_000
 ): Promise<TResponse> {
+  return postJsonFromOrigin(path, config.apiBaseUrl, body, timeoutMs);
+}
+
+export async function postJsonFromOrigin<TResponse>(
+  path: string,
+  origin: string,
+  body: unknown,
+  timeoutMs = 15_000
+): Promise<TResponse> {
   let response: Response;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    response = await fetch(`${config.apiBaseUrl}${path}`, {
+    response = await fetch(`${origin.replace(/\/+$/, '')}${path}`, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -63,12 +72,22 @@ export async function postAuthorizedJson<TResponse>(
   accessToken: string,
   timeoutMs = 15_000
 ): Promise<TResponse> {
+  return postAuthorizedJsonFromOrigin(path, config.apiBaseUrl, body, accessToken, timeoutMs);
+}
+
+export async function postAuthorizedJsonFromOrigin<TResponse>(
+  path: string,
+  origin: string,
+  body: unknown,
+  accessToken: string,
+  timeoutMs = 15_000
+): Promise<TResponse> {
   let response: Response;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    response = await fetch(`${config.apiBaseUrl}${path}`, {
+    response = await fetch(`${origin.replace(/\/+$/, '')}${path}`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -138,12 +157,21 @@ export async function getJson<TResponse>(
   accessToken?: string,
   timeoutMs = 15_000
 ): Promise<TResponse> {
+	return getJsonFromOrigin(path, config.apiBaseUrl, accessToken, timeoutMs);
+}
+
+export async function getJsonFromOrigin<TResponse>(
+  path: string,
+  origin: string,
+  accessToken?: string,
+  timeoutMs = 15_000
+): Promise<TResponse> {
   let response: Response;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    response = await fetch(`${config.apiBaseUrl}${path}`, {
+    response = await fetch(`${origin.replace(/\/+$/, '')}${path}`, {
       headers: {
         Accept: 'application/json',
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),

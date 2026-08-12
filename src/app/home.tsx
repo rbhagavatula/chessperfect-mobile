@@ -1,6 +1,6 @@
 import { Image, type ImageSource } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -10,8 +10,9 @@ import { CivBackdrop } from '@/components/civ-ornament';
 import { RoyalDashboardCard } from '@/components/royal-dashboard-card';
 import { colors } from '@/constants/colors';
 import { getJson } from '@/lib/api';
+import { clearSelectedAcademy } from '@/lib/academy';
 import { config } from '@/lib/config';
-import { clearSession, getSession } from '@/lib/session';
+import { getSession, logoutSession } from '@/lib/session';
 
 type DashboardCard = {
   label: string;
@@ -26,7 +27,27 @@ type BottomDestination = {
 type MeView = {
   avatarKey?: string | null;
   displayName?: string | null;
+  tenantMemberships?: {
+    role?: string | null;
+  }[] | null;
 };
+
+const academyDashboardRoles = new Set([
+  'STUDENT',
+  'OWNER',
+  // Academy employees currently receive one of these tenant roles from the backend.
+  'EMPLOYEE',
+  'ADMIN',
+  'STAFF',
+  'COACH',
+]);
+
+function hasActiveAcademyAssociation(me: MeView) {
+  return (me.tenantMemberships ?? []).some((membership) => {
+    const role = membership.role?.trim().toUpperCase();
+    return role ? academyDashboardRoles.has(role) : false;
+  });
+}
 
 function resolveAvatarUri(avatarKey?: string | null) {
   const key = avatarKey?.trim();
@@ -58,6 +79,7 @@ export default function HomeScreen() {
   const [activeDestination, setActiveDestination] = useState('HOME');
   const [commanderName, setCommanderName] = useState(displayName);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [showMyAcademy, setShowMyAcademy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -70,6 +92,7 @@ export default function HomeScreen() {
         if (!active) return;
         if (me.displayName?.trim()) setCommanderName(me.displayName.trim());
         setAvatarUri(resolveAvatarUri(me.avatarKey));
+        setShowMyAcademy(hasActiveAcademyAssociation(me));
       } catch {
         // Keep the username and initials fallback when profile enrichment is unavailable.
       }
@@ -82,12 +105,13 @@ export default function HomeScreen() {
   }, []);
 
   async function signOut() {
-    await clearSession();
-    router.replace('/');
+    await Promise.all([logoutSession(), clearSelectedAcademy()]);
+    router.replace('/sign-in');
   }
 
   function openSettings() {
     Alert.alert('Settings', 'Choose an action', [
+      { onPress: () => router.push('/account' as Href), text: 'My Account' },
       { style: 'cancel', text: 'Cancel' },
       { onPress: signOut, style: 'destructive', text: 'Sign out' },
     ]);
@@ -96,6 +120,14 @@ export default function HomeScreen() {
   function openCard(label: string) {
     if (label === 'PLAY') {
       router.push('../play');
+      return;
+    }
+    if (label === 'LEARN') {
+      router.push('../learn');
+      return;
+    }
+    if (label === 'MY ACADEMY') {
+      router.push('/academy' as Href);
       return;
     }
     Alert.alert(label, `${label} is the next ChessPerfect mobile experience we will build.`);
@@ -136,7 +168,7 @@ export default function HomeScreen() {
             <Pressable
               accessibilityLabel={`${commanderName} profile`}
               accessibilityRole="button"
-              onPress={() => Alert.alert(commanderName, 'Player profile is coming next.')}
+              onPress={() => router.push('/account' as Href)}
               style={({ pressed }) => [styles.avatar, pressed && styles.pressed]}>
               {avatarUri ? (
                 <Image contentFit="cover" source={{ uri: avatarUri }} style={styles.avatarImage} transition={180} />
@@ -198,14 +230,16 @@ export default function HomeScreen() {
           </Pressable>
 
           <View style={styles.cardsGrid}>
-            {dashboardCards.map((card) => (
-              <RoyalDashboardCard
-                key={card.label}
-                label={card.label}
-                onPress={() => openCard(card.label)}
-                source={card.source}
-              />
-            ))}
+            {dashboardCards
+              .filter((card) => card.label !== 'MY ACADEMY' || showMyAcademy)
+              .map((card) => (
+                <RoyalDashboardCard
+                  key={card.label}
+                  label={card.label}
+                  onPress={() => openCard(card.label)}
+                  source={card.source}
+                />
+              ))}
           </View>
         </ScrollView>
 

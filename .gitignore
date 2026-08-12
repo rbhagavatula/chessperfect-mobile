@@ -5,6 +5,8 @@ node_modules/
 
 # Expo
 .expo/
+.expo-validation/
+.expo-*-validation/
 dist/
 dist-android/
 dist-video-check/
@@ -23,6 +25,8 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 metro-*.log
+metro.err.log
+metro.out.log
 
 # debug
 npm-debug.*

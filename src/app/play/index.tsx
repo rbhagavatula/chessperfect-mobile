@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useFocusEffect } from 'expo-router';
+import { router, type Href, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -11,6 +11,10 @@ import { PlayScreenHeader } from '@/components/play-screen-header';
 import { colors } from '@/constants/colors';
 import { loadActiveBotGame, type ActiveBotGame } from '@/lib/active-bot-game';
 import { botLevels } from '@/lib/bot-game';
+import {
+  fetchCurrentMultiplayerGame,
+  type OngoingMultiplayerGame,
+} from '@/lib/multiplayer-game';
 import { restoreSession } from '@/lib/session';
 
 const modes = [
@@ -36,12 +40,26 @@ const modes = [
 
 export default function PlayScreen() {
   const [activeBotGame, setActiveBotGame] = useState<ActiveBotGame | null>(null);
+  const [activeMultiplayerGame, setActiveMultiplayerGame] = useState<OngoingMultiplayerGame | null>(null);
 
   useFocusEffect(useCallback(() => {
     let active = true;
     void restoreSession().then(async (session) => {
-      const savedGame = session ? await loadActiveBotGame(session.username) : null;
-      if (active) setActiveBotGame(savedGame);
+      if (!session) {
+        if (active) {
+          setActiveBotGame(null);
+          setActiveMultiplayerGame(null);
+        }
+        return;
+      }
+      const [savedGame, liveGame] = await Promise.all([
+        loadActiveBotGame(session.username),
+        fetchCurrentMultiplayerGame(session.accessToken).catch(() => null),
+      ]);
+      if (active) {
+        setActiveBotGame(savedGame);
+        setActiveMultiplayerGame(liveGame);
+      }
     });
     return () => {
       active = false;
@@ -61,6 +79,14 @@ export default function PlayScreen() {
     });
   }
 
+  function resumeMultiplayerBattle() {
+    if (!activeMultiplayerGame) return;
+    router.push({
+      pathname: '/play/multiplayer/game',
+      params: { gameId: activeMultiplayerGame.id },
+    } as Href);
+  }
+
   return (
     <LinearGradient colors={['#06111c', '#160f0b', '#05090d']} style={styles.background}>
       <CivBackdrop />
@@ -76,6 +102,32 @@ export default function PlayScreen() {
               <View style={styles.dividerLine} />
             </View>
           </View>
+
+          {activeMultiplayerGame ? (
+            <Pressable
+              accessibilityLabel="Resume live multiplayer game"
+              accessibilityRole="button"
+              onPress={resumeMultiplayerBattle}
+              style={({ pressed }) => [styles.resumeFrame, pressed && styles.pressed]}>
+              <LinearGradient colors={['#24434d', '#111c21']} style={styles.resumeBattle}>
+                <View style={styles.resumeIcon}>
+                  <SymbolView
+                    name={{ android: 'groups', ios: 'person.2.fill', web: 'group' }}
+                    size={24}
+                    tintColor={colors.goldLight}
+                  />
+                </View>
+                <View style={styles.resumeCopy}>
+                  <Text style={styles.resumeEyebrow}>LIVE BATTLE</Text>
+                  <Text style={styles.resumeTitle}>Resume multiplayer game</Text>
+                  <Text numberOfLines={1} style={styles.resumeMeta}>
+                    {activeMultiplayerGame.timeControl} · {activeMultiplayerGame.white} vs {activeMultiplayerGame.black}
+                  </Text>
+                </View>
+                <Text style={styles.resumeAction}>RESUME</Text>
+              </LinearGradient>
+            </Pressable>
+          ) : null}
 
           {activeBotGame ? (
             <Pressable
@@ -114,6 +166,7 @@ export default function PlayScreen() {
               />
             ))}
           </View>
+
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>

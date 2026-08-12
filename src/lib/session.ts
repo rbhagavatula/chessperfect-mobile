@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { postAuthorizedJson } from '@/lib/api';
 import { refreshAuthToken } from '@/lib/auth';
 
 const keys = {
@@ -11,6 +12,8 @@ const keys = {
   tokenType: 'chessperfect.tokenType',
   username: 'chessperfect.username',
 } as const;
+
+let sessionGeneration = 0;
 
 async function setItem(key: string, value: string) {
   if (Platform.OS === 'web') {
@@ -44,7 +47,7 @@ export type Session = {
   username: string;
 };
 
-export async function saveSession(session: Session) {
+async function persistSession(session: Session) {
   await Promise.all([
     setItem(keys.accessToken, session.accessToken),
     setItem(keys.username, session.username),
@@ -57,6 +60,11 @@ export async function saveSession(session: Session) {
       ? setItem(keys.loginSessionId, session.loginSessionId)
       : deleteItem(keys.loginSessionId),
   ]);
+}
+
+export async function saveSession(session: Session) {
+  sessionGeneration += 1;
+  await persistSession(session);
 }
 
 export async function getSession(): Promise<Session | null> {
@@ -84,8 +92,10 @@ export async function getSession(): Promise<Session | null> {
 }
 
 export async function restoreSession(): Promise<Session | null> {
+  const generation = sessionGeneration;
   try {
     const session = await getSession();
+    if (generation !== sessionGeneration) return null;
     if (!session) return null;
 
     const accessTokenIsFresh =
@@ -98,6 +108,7 @@ export async function restoreSession(): Promise<Session | null> {
     }
 
     const refreshed = await refreshAuthToken(session.refreshToken);
+    if (generation !== sessionGeneration) return null;
     const nextSession: Session = {
       accessToken: refreshed.accessToken,
       expiresAt:
@@ -109,14 +120,49 @@ export async function restoreSession(): Promise<Session | null> {
       tokenType: refreshed.tokenType || session.tokenType,
       username: session.username,
     };
-    await saveSession(nextSession);
+    await persistSession(nextSession);
+    if (generation !== sessionGeneration) {
+      await clearStoredSession();
+      return null;
+    }
     return nextSession;
   } catch {
-    await clearSession();
+    if (generation === sessionGeneration) await clearSession();
     return null;
   }
 }
 
-export async function clearSession() {
+async function clearStoredSession() {
   await Promise.all(Object.values(keys).map(deleteItem));
+}
+
+export async function clearSession() {
+  // Invalidate refreshes already in flight before deleting stored credentials.
+  sessionGeneration += 1;
+  await clearStoredSession();
+}
+
+async function notifyServerLogout(session: Session) {
+  await Promise.allSettled([
+    session.loginSessionId
+      ? postAuthorizedJson<{ ok: boolean }>(
+          '/api/v1/global/login-sessions/logout',
+          { loginSessionId: session.loginSessionId },
+          session.accessToken,
+          5_000,
+        )
+      : Promise.resolve(),
+    postAuthorizedJson<{ ok: boolean }>(
+      '/api/v1/global/presence/logout',
+      undefined,
+      session.accessToken,
+      5_000,
+    ),
+  ]);
+}
+
+export async function logoutSession() {
+  const session = await getSession();
+  await clearSession();
+  if (session) void notifyServerLogout(session);
 }

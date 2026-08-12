@@ -21,7 +21,10 @@ export default function RootLayout() {
           name="home"
           options={{ headerShown: false, gestureEnabled: false }}
         />
+        <Stack.Screen name="account" options={{ headerShown: false }} />
+        <Stack.Screen name="learn" options={{ headerShown: false }} />
         <Stack.Screen name="play" options={{ headerShown: false }} />
+        <Stack.Screen name="academy" options={{ headerShown: false }} />
       </Stack>
     </>
   );

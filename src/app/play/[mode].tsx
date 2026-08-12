@@ -1,6 +1,6 @@
 import { Image, type ImageSource } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -73,6 +73,10 @@ export default function PlayModeScreen() {
     }
     if (mode === 'bot') {
       router.push({ pathname: '/play/bot/setup', params: { speed: selection } });
+      return;
+    }
+    if (mode === 'multiplayer') {
+      router.push({ pathname: '/play/multiplayer/lobby', params: { speed: selection } } as Href);
       return;
     }
     Alert.alert(config.action, `${selection} is selected. Matchmaking and game setup are the next milestone.`);

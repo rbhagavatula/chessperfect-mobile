@@ -1,4 +1,4 @@
-import { ApiError, postJson } from '@/lib/api';
+import { ApiError, postJson, postJsonFromOrigin } from '@/lib/api';
 
 export type AuthTokenResponse = {
   accessToken: string;
@@ -36,5 +36,14 @@ export async function refreshAuthToken(refreshToken: string) {
   const response = await postJson<AuthTokenResponse>('/api/v1/global/auth/refresh', {
     refreshToken,
   });
+  return requireAuthTokenResponse(response);
+}
+
+export async function refreshAuthTokenFromOrigin(refreshToken: string, origin: string) {
+  const response = await postJsonFromOrigin<AuthTokenResponse>(
+    '/api/v1/global/auth/refresh',
+    origin,
+    { refreshToken },
+  );
   return requireAuthTokenResponse(response);
 }
