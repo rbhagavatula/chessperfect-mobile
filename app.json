@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "ChessPerfect",
+    "slug": "prufer-logic",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/chessperfect-icon.png",
+    "scheme": "chessperfect",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#020817",
+    "ios": {
+      "bundleIdentifier": "com.chessperfect.mobile",
+      "icon": "./assets/images/chessperfect-icon.png",
+      "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.chessperfect.mobile",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#020817",
+        "foregroundImage": "./assets/images/chessperfect-icon.png"
+      },
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/chessperfect-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#020817",
+          "image": "./assets/images/chessperfect-icon.png",
+          "imageWidth": 160
+        }
+      ],
+      "expo-secure-store",
+      "expo-video"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "fede2464-e912-4ab0-9cb7-c277240f18a8"
+      }
+    },
+    "owner": "prufer-logic-technologies-private-limited"
+  }
+}
