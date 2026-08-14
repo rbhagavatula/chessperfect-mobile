@@ -1,15 +1,20 @@
 import { router } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/constants/colors';
 
 type PlayScreenHeaderProps = {
+  rightAction?: {
+    accessibilityLabel: string;
+    icon: SymbolViewProps['name'];
+    onPress: () => void;
+  };
   showSettings?: boolean;
   title: string;
 };
 
-export function PlayScreenHeader({ showSettings = true, title }: PlayScreenHeaderProps) {
+export function PlayScreenHeader({ rightAction, showSettings = true, title }: PlayScreenHeaderProps) {
   return (
     <View style={styles.header}>
       <Pressable
@@ -27,7 +32,16 @@ export function PlayScreenHeader({ showSettings = true, title }: PlayScreenHeade
       <Text adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1} style={styles.title}>
         {title}
       </Text>
-      {showSettings ? (
+      {rightAction ? (
+        <Pressable
+          accessibilityLabel={rightAction.accessibilityLabel}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={rightAction.onPress}
+          style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
+          <SymbolView name={rightAction.icon} size={27} tintColor={colors.goldLight} />
+        </Pressable>
+      ) : showSettings ? (
         <Pressable
           accessibilityLabel="Play settings"
           accessibilityRole="button"

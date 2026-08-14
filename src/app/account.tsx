@@ -1,8 +1,9 @@
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import * as WebBrowser from 'expo-web-browser';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -21,9 +22,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CivBackdrop, OrnamentDivider, RoyalCorners } from '@/components/civ-ornament';
 import { PlayScreenHeader } from '@/components/play-screen-header';
 import { colors } from '@/constants/colors';
+import { clearSelectedAcademy } from '@/lib/academy';
 import { config } from '@/lib/config';
 import {
+  createPlayerGooglePlayCheckout,
+  fetchGooglePlayCatalogue,
+  restoreGooglePlayPurchase,
+  useGooglePlayCheckout,
+  type GooglePlayCatalogue,
+} from '@/lib/google-play-billing';
+import { clearSession, getSession } from '@/lib/session';
+import {
   fetchPlayerAccount,
+  requestAccountDeletion,
   savePlayerProfile,
   type AccountTab,
   type Country,
@@ -41,6 +52,7 @@ const tabs: { icon: SymbolViewProps['name']; label: string; value: AccountTab }[
   { icon: { android: 'emoji_events', ios: 'trophy.fill', web: 'emoji_events' }, label: 'ACHIEVEMENTS', value: 'ACHIEVEMENTS' },
   { icon: { android: 'person', ios: 'person.crop.circle.fill', web: 'person' }, label: 'PROFILE', value: 'PROFILE' },
   { icon: { android: 'workspace_premium', ios: 'crown.fill', web: 'workspace_premium' }, label: 'PLAN', value: 'SUBSCRIPTION' },
+  { icon: { android: 'privacy_tip', ios: 'hand.raised.fill', web: 'privacy_tip' }, label: 'PRIVACY', value: 'PRIVACY' },
 ];
 
 const speedConfig: { color: string; label: string; speed: RatingSpeed; timeControl: string }[] = [
@@ -142,13 +154,85 @@ export default function MyAccountScreen() {
                 {activeTab === 'PROGRESS' ? <ProgressPanel progress={data.progress} ratings={data.ratings} /> : null}
                 {activeTab === 'ACHIEVEMENTS' ? <AchievementsPanel medals={data.profile.medals ?? []} /> : null}
                 {activeTab === 'PROFILE' ? <ProfilePanel countries={data.countries} initialProfile={data.profile} onSaved={(profile) => setData((current) => current ? { ...current, profile } : current)} /> : null}
-                {activeTab === 'SUBSCRIPTION' ? <SubscriptionPanel currentCode={data.me.planCode || 'FREE'} nextBillingDate={data.me.nextBillingDate} plans={data.plans} /> : null}
+                {activeTab === 'SUBSCRIPTION' ? <SubscriptionPanel currentCode={data.me.planCode || 'FREE'} nextBillingDate={data.me.nextBillingDate} onPurchased={() => load(true)} plans={data.plans} /> : null}
+                {activeTab === 'PRIVACY' ? <PrivacyPanel /> : null}
               </>
             )}
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </LinearGradient>
+  );
+}
+
+function PrivacyPanel() {
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  function openLegal(path: '/privacy' | '/terms') {
+    void WebBrowser.openBrowserAsync(`${config.apiBaseUrl}${path}`);
+  }
+
+  async function submitDeletion() {
+    if (confirmation.trim().toUpperCase() !== 'DELETE') {
+      setDeleteError('Type DELETE to confirm.');
+      return;
+    }
+    if (!password) {
+      setDeleteError('Enter your current password.');
+      return;
+    }
+    setSubmitting(true);
+    setDeleteError(null);
+    try {
+      await requestAccountDeletion(password);
+      await Promise.all([clearSession(), clearSelectedAcademy()]);
+      setDeleteOpen(false);
+      router.replace('/sign-in');
+    } catch (caught) {
+      setDeleteError(caught instanceof Error ? caught.message : 'The deletion request could not be submitted.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View>
+      <SectionHeading eyebrow="PRIVACY & DATA" title="Your Account" />
+      <View style={styles.panel}>
+        <RoyalCorners />
+        <Text style={styles.panelTitle}>Legal & privacy</Text>
+        <Text style={styles.panelSubtitle}>Review how ChessPerfect handles your data and the terms that apply to your account.</Text>
+        <Pressable accessibilityRole="link" onPress={() => openLegal('/privacy')} style={styles.legalRow}>
+          <Text style={styles.legalRowText}>Privacy Policy</Text><SymbolView name={{ android: 'open_in_new', ios: 'arrow.up.right.square', web: 'open_in_new' }} size={18} tintColor={colors.goldLight} />
+        </Pressable>
+        <Pressable accessibilityRole="link" onPress={() => openLegal('/terms')} style={styles.legalRow}>
+          <Text style={styles.legalRowText}>Terms of Service</Text><SymbolView name={{ android: 'open_in_new', ios: 'arrow.up.right.square', web: 'open_in_new' }} size={18} tintColor={colors.goldLight} />
+        </Pressable>
+      </View>
+      <View style={styles.dangerPanel}>
+        <Text style={styles.dangerTitle}>Delete ChessPerfect account</Text>
+        <Text style={styles.panelSubtitle}>Submitting a request immediately disables your account and signs you out. Personal profile data is removed, while transaction or classroom records may be retained only where required by law or legitimate business obligations.</Text>
+        <Text style={styles.deleteNotice}>Google Play subscriptions are managed separately. Cancel an active subscription in Google Play before deleting your account to stop future renewal.</Text>
+        <Pressable accessibilityRole="button" onPress={() => setDeleteOpen(true)} style={styles.deleteButton}><Text style={styles.deleteButtonText}>REQUEST ACCOUNT DELETION</Text></Pressable>
+      </View>
+      <Modal animationType="fade" onRequestClose={() => setDeleteOpen(false)} transparent visible={deleteOpen}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
+          <View style={styles.modalPanel}>
+            <Text style={styles.modalTitle}>Delete your account?</Text>
+            <Text style={styles.deleteModalText}>This disables access immediately. Enter your password and type DELETE to submit the request.</Text>
+            <TextInput autoCapitalize="none" onChangeText={setPassword} placeholder="Current password" placeholderTextColor={colors.muted} secureTextEntry selectionColor={colors.goldLight} style={styles.searchInput} value={password} />
+            <TextInput autoCapitalize="characters" onChangeText={setConfirmation} placeholder="Type DELETE" placeholderTextColor={colors.muted} selectionColor={colors.goldLight} style={[styles.searchInput, styles.deleteConfirmInput]} value={confirmation} />
+            {deleteError ? <Text style={styles.errorText}>{deleteError}</Text> : null}
+            <Pressable disabled={submitting} onPress={() => void submitDeletion()} style={[styles.deleteButton, submitting && styles.disabled]}>{submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.deleteButtonText}>DELETE MY ACCOUNT</Text>}</Pressable>
+            <Pressable disabled={submitting} onPress={() => setDeleteOpen(false)} style={styles.modalClose}><Text style={styles.modalCloseText}>KEEP MY ACCOUNT</Text></Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
   );
 }
 
@@ -329,14 +413,78 @@ function CountryModal({ countries, onClose, onSelect, visible }: { countries: Co
   );
 }
 
-function SubscriptionPanel({ currentCode, nextBillingDate, plans }: { currentCode: string; nextBillingDate?: string | null; plans: PlayerPlan[] }) {
+function SubscriptionPanel({ currentCode, nextBillingDate, onPurchased, plans }: { currentCode: string; nextBillingDate?: string | null; onPurchased: () => void | Promise<void>; plans: PlayerPlan[] }) {
   const code = currentCode.toUpperCase();
   const current = plans.find((plan) => plan.code.toUpperCase() === code);
-  const upgrade = code === 'FREE' ? 'premium' : code === 'PREMIUM' ? 'master' : null;
+  const upgrade = code === 'FREE' ? 'PREMIUM' : code === 'PREMIUM' ? 'MASTER' : null;
+  const [catalogue, setCatalogue] = useState<GooglePlayCatalogue | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const restoredTokens = useRef(new Set<string>());
+  const googlePlay = useGooglePlayCheckout({
+    onCompleted: async () => {
+      setBillingError(null);
+      await onPurchased();
+    },
+    onError: setBillingError,
+  });
+  const { connected: playConnected, fetchProducts: fetchPlayProducts, getAvailablePurchases: loadAvailablePurchases } = googlePlay;
+
+  useEffect(() => {
+    if (!playConnected) return;
+    let active = true;
+    void (async () => {
+      try {
+        const session = await getSession();
+        if (!session) throw new Error('Please sign in again to manage your plan.');
+        const nextCatalogue = await fetchGooglePlayCatalogue(session.accessToken);
+        if (!active) return;
+        setCatalogue(nextCatalogue);
+        await Promise.all([
+          fetchPlayProducts({ skus: nextCatalogue.playerSubscriptions.map((item) => item.productId), type: 'subs' }),
+          loadAvailablePurchases(),
+        ]);
+      } catch (caught) {
+        if (active) setBillingError(caught instanceof Error ? caught.message : 'Google Play Billing is unavailable.');
+      }
+    })();
+    return () => { active = false; };
+  }, [fetchPlayProducts, loadAvailablePurchases, playConnected]);
+
+  useEffect(() => {
+    if (!catalogue || !googlePlay.availablePurchases.length) return;
+    const productIds = new Set(catalogue.playerSubscriptions.map((item) => item.productId));
+    void (async () => {
+      const session = await getSession();
+      if (!session) return;
+      const authorization = { accessToken: session.accessToken, origin: config.apiBaseUrl };
+      for (const purchase of googlePlay.availablePurchases) {
+        const token = purchase.purchaseToken;
+        if (!token || !productIds.has(purchase.productId) || restoredTokens.current.has(token)) continue;
+        restoredTokens.current.add(token);
+        await restoreGooglePlayPurchase(authorization, purchase).catch(() => undefined);
+      }
+    })();
+  }, [catalogue, googlePlay.availablePurchases]);
+
+  const storePrice = (planCode?: string | null) => {
+    const item = catalogue?.playerSubscriptions.find((candidate) => candidate.planCode === planCode?.toUpperCase());
+    const product = googlePlay.subscriptions.find((candidate) => candidate.id === item?.productId);
+    return product?.displayPrice ? `${product.displayPrice} / year` : (item ? formatInr(item.expectedAmountInr) : null);
+  };
+
   async function managePlan() {
-    const url = new URL('/subscription', config.apiBaseUrl);
-    if (upgrade) url.searchParams.set('upgrade', upgrade);
-    await WebBrowser.openBrowserAsync(url.toString(), { createTask: false });
+    if (!upgrade || googlePlay.busy) return;
+    setBillingError(null);
+    try {
+      const { authorization, checkout } = await createPlayerGooglePlayCheckout(upgrade);
+      const currentProductId = catalogue?.playerSubscriptions.find((item) => item.planCode === code)?.productId;
+      const oldPurchase = currentProductId
+        ? googlePlay.availablePurchases.find((purchase) => purchase.productId === currentProductId)
+        : undefined;
+      await googlePlay.begin(checkout, authorization, oldPurchase);
+    } catch (caught) {
+      setBillingError(caught instanceof Error ? caught.message : 'Google Play could not start the upgrade.');
+    }
   }
   return (
     <View>
@@ -346,16 +494,17 @@ function SubscriptionPanel({ currentCode, nextBillingDate, plans }: { currentCod
         <View style={styles.planCrown}><SymbolView name={{ android: 'workspace_premium', ios: 'crown.fill', web: 'workspace_premium' }} size={35} tintColor={colors.goldLight} /></View>
         <Text style={styles.planTitle}>{current?.title || code}</Text>
         <Text style={styles.planSubtitle}>{current?.subtitle || 'Your current ChessPerfect player plan.'}</Text>
-        <View style={styles.planFacts}><PlanFact label="PRICE" value={current?.contactOnly ? 'Contact us' : formatInr(current?.yearlyPriceInr)} /><PlanFact label="NEXT BILLING" value={code === 'FREE' ? 'Not scheduled' : formatDate(nextBillingDate)} /></View>
-        {upgrade ? <Pressable onPress={() => void managePlan()} style={styles.primaryButton}><Text style={styles.primaryButtonText}>UPGRADE PLAN</Text></Pressable> : <View style={styles.highestPlan}><Text style={styles.highestPlanText}>HIGHEST PLAYER PLAN</Text></View>}
+        <View style={styles.planFacts}><PlanFact label="GOOGLE PLAY PRICE" value={current?.contactOnly ? 'Contact us' : storePrice(code) || formatInr(current?.yearlyPriceInr)} /><PlanFact label="NEXT BILLING" value={code === 'FREE' ? 'Not scheduled' : formatDate(nextBillingDate)} /></View>
+        {billingError ? <Text style={styles.errorText}>{billingError}</Text> : null}
+        {upgrade ? <Pressable disabled={googlePlay.busy || !googlePlay.connected} onPress={() => void managePlan()} style={[styles.primaryButton, (googlePlay.busy || !googlePlay.connected) && styles.disabled]}>{googlePlay.busy ? <ActivityIndicator color="#211305" /> : <Text style={styles.primaryButtonText}>{googlePlay.connected ? `UPGRADE TO ${upgrade}` : 'CONNECTING TO GOOGLE PLAY...'}</Text>}</Pressable> : <View style={styles.highestPlan}><Text style={styles.highestPlanText}>HIGHEST PLAYER PLAN</Text></View>}
       </View>
-      <View style={styles.planList}>{plans.filter((plan) => plan.code !== 'FREE').map((plan) => <PlanCard current={plan.code.toUpperCase() === code} key={plan.code} plan={plan} />)}</View>
+      <View style={styles.planList}>{plans.filter((plan) => plan.code !== 'FREE').map((plan) => <PlanCard current={plan.code.toUpperCase() === code} key={plan.code} plan={plan} storePrice={storePrice(plan.code)} />)}</View>
     </View>
   );
 }
 
 function PlanFact({ label, value }: { label: string; value: string }) { return <View style={styles.planFact}><Text style={styles.planFactLabel}>{label}</Text><Text numberOfLines={2} style={styles.planFactValue}>{value}</Text></View>; }
-function PlanCard({ current, plan }: { current: boolean; plan: PlayerPlan }) { return <View style={[styles.planCard, current && styles.planCardCurrent]}><View style={styles.planCardHeading}><Text style={styles.planCardTitle}>{plan.title}</Text>{current ? <Text style={styles.currentBadge}>CURRENT</Text> : null}</View><Text style={styles.planCardSubtitle}>{plan.subtitle}</Text><Text style={styles.planCardPrice}>{plan.contactOnly ? 'Contact us' : formatInr(plan.yearlyPriceInr)}</Text></View>; }
+function PlanCard({ current, plan, storePrice }: { current: boolean; plan: PlayerPlan; storePrice?: string | null }) { return <View style={[styles.planCard, current && styles.planCardCurrent]}><View style={styles.planCardHeading}><Text style={styles.planCardTitle}>{plan.title}</Text>{current ? <Text style={styles.currentBadge}>CURRENT</Text> : null}</View><Text style={styles.planCardSubtitle}>{plan.subtitle}</Text><Text style={styles.planCardPrice}>{plan.contactOnly ? 'Contact us' : storePrice || formatInr(plan.yearlyPriceInr)}</Text></View>; }
 function SectionHeading({ eyebrow, title }: { eyebrow: string; title: string }) { return <View style={styles.sectionHeading}><Text style={styles.eyebrow}>{eyebrow}</Text><Text style={styles.sectionTitle}>{title}</Text></View>; }
 
 const styles = StyleSheet.create({
@@ -363,10 +512,12 @@ const styles = StyleSheet.create({
   background: { flex: 1 }, safeArea: { flex: 1 }, content: { flexGrow: 1, paddingBottom: 35, paddingHorizontal: 14 },
   compactField: { flex: 1, minWidth: 0 }, countryCode: { color: colors.gold, fontSize: 10, fontWeight: '900' }, countryList: { maxHeight: 390 }, countryName: { color: colors.cream, flex: 1, fontSize: 13 }, countryRow: { alignItems: 'center', borderBottomColor: 'rgba(255,255,255,0.08)', borderBottomWidth: 1, flexDirection: 'row', paddingHorizontal: 4, paddingVertical: 13 },
   currentBadge: { backgroundColor: colors.goldLight, borderRadius: 10, color: '#211305', fontSize: 7, fontWeight: '900', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4 },
+  dangerPanel: { backgroundColor: 'rgba(62,8,18,0.88)', borderColor: '#be3652', borderRadius: 14, borderWidth: 1, marginTop: 13, padding: 15 }, dangerTitle: { color: '#fecdd3', fontFamily: 'serif', fontSize: 20, fontWeight: '900' }, deleteButton: { alignItems: 'center', backgroundColor: '#9f1239', borderColor: '#fb7185', borderRadius: 9, borderWidth: 1, justifyContent: 'center', marginTop: 16, minHeight: 45, paddingHorizontal: 18 }, deleteButtonText: { color: '#fff1f2', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }, deleteConfirmInput: { marginTop: 10 }, deleteModalText: { color: colors.sandstone, fontSize: 10, lineHeight: 16, marginBottom: 14, textAlign: 'center' }, deleteNotice: { color: '#fecdd3', fontSize: 9, lineHeight: 14, marginTop: 12 },
   disabled: { opacity: 0.55 }, emptyBox: { alignItems: 'center', borderColor: 'rgba(201,143,28,0.3)', borderRadius: 11, borderStyle: 'dashed', borderWidth: 1, marginTop: 16, padding: 25 }, emptyTitle: { color: colors.goldLight, fontFamily: 'serif', fontSize: 18, fontWeight: '900', marginTop: 9 }, errorText: { color: '#fecdd3', fontSize: 10, lineHeight: 15, marginTop: 10, textAlign: 'center' }, eyebrow: { color: colors.gold, fontSize: 8, fontWeight: '900', letterSpacing: 1.1 },
   fieldLabel: { color: colors.gold, fontSize: 8, fontWeight: '900', letterSpacing: 0.8, marginBottom: 6, marginTop: 13 }, fieldRow: { flexDirection: 'row', gap: 10 },
   highestPlan: { alignItems: 'center', backgroundColor: 'rgba(52,211,153,0.12)', borderColor: colors.success, borderRadius: 8, borderWidth: 1, marginTop: 18, padding: 12 }, highestPlanText: { color: '#a7f3d0', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
   identityCopy: { flex: 1, marginHorizontal: 13, minWidth: 0 }, identityName: { color: colors.cream, fontFamily: 'serif', fontSize: 21, fontWeight: '900', marginTop: 3 }, identityPanel: { alignItems: 'center', backgroundColor: 'rgba(7,16,24,0.95)', borderColor: colors.border, borderRadius: 14, borderWidth: 1, flexDirection: 'row', marginTop: 16, padding: 15 }, identityPlan: { color: colors.sandstone, fontSize: 8, fontWeight: '800', letterSpacing: 0.7, marginTop: 4 },
+  legalRow: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.22)', borderColor: colors.goldDark, borderRadius: 9, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, minHeight: 48, paddingHorizontal: 13 }, legalRowText: { color: colors.cream, fontSize: 12, fontWeight: '800' },
   medalCard: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.09)', borderRadius: 10, borderWidth: 1, flexDirection: 'row', marginTop: 11, padding: 12 }, medalCopy: { flex: 1, marginLeft: 12 }, medalCount: { alignItems: 'center', backgroundColor: 'rgba(7,15,22,0.95)', borderColor: colors.goldDark, borderRadius: 12, borderWidth: 1, flex: 1, padding: 12 }, medalCountLabel: { color: colors.muted, fontSize: 7, fontWeight: '900', letterSpacing: 0.7, marginTop: 3 }, medalCountRow: { flexDirection: 'row', gap: 8 }, medalCountValue: { color: colors.cream, fontFamily: 'serif', fontSize: 21, fontWeight: '900' }, medalDate: { color: colors.muted, fontSize: 8, marginTop: 5 }, medalDisc: { alignItems: 'center', backgroundColor: '#1b140e', borderRadius: 25, borderWidth: 3, height: 50, justifyContent: 'center', width: 50 }, medalDiscText: { fontFamily: 'serif', fontSize: 19, fontWeight: '900' }, medalMeta: { color: colors.sandstone, fontSize: 9, marginTop: 4 }, medalTitle: { color: colors.cream, fontFamily: 'serif', fontSize: 15, fontWeight: '900' },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.75)', flex: 1, justifyContent: 'center', padding: 22 }, modalClose: { alignItems: 'center', borderColor: colors.gold, borderRadius: 8, borderWidth: 1, marginTop: 12, padding: 11 }, modalCloseText: { color: colors.goldLight, fontSize: 9, fontWeight: '900' }, modalPanel: { backgroundColor: colors.navy, borderColor: colors.gold, borderRadius: 14, borderWidth: 1, maxHeight: '78%', padding: 16, width: '100%' }, modalTitle: { color: colors.goldLight, fontFamily: 'serif', fontSize: 21, fontWeight: '900', marginBottom: 12, textAlign: 'center' },
   noTrackData: { color: colors.muted, fontSize: 8, left: 12, position: 'absolute', top: 13 },

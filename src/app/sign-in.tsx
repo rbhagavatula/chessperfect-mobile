@@ -114,7 +114,7 @@ export default function SignInScreen() {
               <Image
                 accessibilityIgnoresInvertColors
                 contentFit="contain"
-                source={require('@/assets/images/chessperfect-logo-transparent-v2.png')}
+                source={require('@/assets/images/chessperfect-brand-mark.png')}
                 style={styles.mark}
               />
               <Text style={styles.kicker}>YOUR CHESS JOURNEY</Text>

@@ -4,30 +4,38 @@
     "slug": "prufer-logic",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/chessperfect-icon.png",
+    "icon": "./assets/images/chessperfect-app-icon.png",
     "scheme": "chessperfect",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#020817",
     "ios": {
       "bundleIdentifier": "com.chessperfect.mobile",
-      "icon": "./assets/images/chessperfect-icon.png",
+      "icon": "./assets/images/chessperfect-app-icon.png",
       "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "ChessPerfect uses the camera during live academy classes.",
+        "NSMicrophoneUsageDescription": "ChessPerfect uses the microphone during live academy classes."
+      },
       "config": {
         "usesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.chessperfect.mobile",
-      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#020817",
-        "foregroundImage": "./assets/images/chessperfect-icon.png"
+        "foregroundImage": "./assets/images/chessperfect-adaptive-foreground.png"
       },
       "predictiveBackGestureEnabled": true
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/chessperfect-icon.png"
+      "favicon": "./assets/images/chessperfect-app-icon.png"
     },
     "plugins": [
       "expo-router",
@@ -35,12 +43,14 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#020817",
-          "image": "./assets/images/chessperfect-icon.png",
+          "image": "./assets/images/chessperfect-brand-mark.png",
           "imageWidth": 160
         }
       ],
       "expo-secure-store",
-      "expo-video"
+      "expo-image",
+      "expo-video",
+      "expo-iap"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,7 +1,7 @@
-import { ApiError, getJson, putAuthorizedJson } from '@/lib/api';
+import { ApiError, getJson, postAuthorizedJson, putAuthorizedJson } from '@/lib/api';
 import { getSession } from '@/lib/session';
 
-export type AccountTab = 'PROGRESS' | 'ACHIEVEMENTS' | 'PROFILE' | 'SUBSCRIPTION';
+export type AccountTab = 'PROGRESS' | 'ACHIEVEMENTS' | 'PROFILE' | 'SUBSCRIPTION' | 'PRIVACY';
 export type RatingSpeed = 'BULLET' | 'BLITZ' | 'RAPID' | 'CLASSICAL';
 
 export type Country = { code: string; name: string };
@@ -183,4 +183,14 @@ export async function savePlayerProfile(profile: PlayerProfile) {
   // Send all profile preferences back. The backend PUT replaces every field,
   // so omitting hidden board preferences would reset the user's chosen theme.
   return putAuthorizedJson<PlayerProfile>('/api/v1/global/player-profile', profile, session.accessToken);
+}
+
+export async function requestAccountDeletion(currentPassword: string) {
+  const session = await getSession();
+  if (!session) throw new ApiError('Please sign in again to delete your account.', 401);
+  return postAuthorizedJson<{ accepted: boolean; requestedAt: string; status: string }>(
+    '/api/v1/global/account-deletion',
+    { confirmation: 'DELETE', currentPassword, source: 'ANDROID' },
+    session.accessToken,
+  );
 }

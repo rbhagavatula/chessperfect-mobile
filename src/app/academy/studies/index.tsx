@@ -11,7 +11,7 @@ import { PlayScreenHeader } from '@/components/play-screen-header';
 import { colors } from '@/constants/colors';
 import {
   academyAssetSource,
-  fetchStudentStudyOverview,
+  fetchAcademyStudyOverview,
   getAcademyStudyContext,
   type AcademyStudyContext,
   type StudentLearnOverview,
@@ -36,6 +36,7 @@ function statusLabel(status: StudyProgressStatus) {
 
 function StudyCard({ context, study }: { context: AcademyStudyContext; study: StudentStudySummary }) {
   const imageSource = academyAssetSource(context, study.photoKey);
+  const coachMode = context.academy.role === 'COACH';
 
   function openStudy() {
     const version = study.studyVersionId ? `?studyVersionId=${study.studyVersionId}` : '';
@@ -57,7 +58,7 @@ function StudyCard({ context, study }: { context: AcademyStudyContext; study: St
         )}
         <LinearGradient colors={['transparent', 'rgba(7, 8, 10, 0.92)']} style={StyleSheet.absoluteFill} />
         <View style={[styles.statusPill, study.progressStatus === 'COMPLETED' && styles.statusCompleted, study.progressStatus === 'READY_FOR_ASSESSMENT' && styles.statusAssessment]}>
-          <Text style={styles.statusPillText}>{statusLabel(study.progressStatus)}</Text>
+          <Text style={styles.statusPillText}>{coachMode ? 'PUBLISHED' : statusLabel(study.progressStatus)}</Text>
         </View>
       </View>
 
@@ -70,7 +71,7 @@ function StudyCard({ context, study }: { context: AcademyStudyContext; study: St
             <Text numberOfLines={1} style={styles.sourceText}>{study.sourceType === 'SERIES' ? study.sourceTitle || 'Series' : 'Direct study'}</Text>
           </View>
           <View style={styles.openRow}>
-            <Text style={styles.openText}>{study.progressStatus === 'OPEN' ? 'CONTINUE' : 'OPEN'}</Text>
+            <Text style={styles.openText}>{coachMode ? 'LEARN' : study.progressStatus === 'OPEN' ? 'CONTINUE' : 'OPEN'}</Text>
             <SymbolView name={{ android: 'chevron_right', ios: 'chevron.right', web: 'chevron_right' }} size={17} tintColor={colors.goldLight} />
           </View>
         </View>
@@ -93,7 +94,7 @@ export default function StudyLibraryScreen() {
     setError(null);
     try {
       const nextContext = await getAcademyStudyContext();
-      const nextOverview = await fetchStudentStudyOverview(nextContext);
+      const nextOverview = await fetchAcademyStudyOverview(nextContext);
       setContext(nextContext);
       setOverview(nextOverview);
     } catch (caught) {
@@ -110,8 +111,11 @@ export default function StudyLibraryScreen() {
 
   const studies = useMemo(() => {
     const all = overview?.studies ?? [];
+    if (context?.academy.role === 'COACH') return all;
     return filter === 'ALL' ? all : all.filter((study) => study.progressStatus === filter);
-  }, [filter, overview]);
+  }, [context?.academy.role, filter, overview]);
+
+  const coachMode = context?.academy.role === 'COACH';
 
   return (
     <LinearGradient colors={['#06111c', '#1a110c', '#05090d']} style={styles.background}>
@@ -151,16 +155,18 @@ export default function StudyLibraryScreen() {
 
               {error ? <View style={styles.inlineError}><Text style={styles.inlineErrorText}>{error}</Text></View> : null}
 
-              <ScrollView contentContainerStyle={styles.filters} horizontal showsHorizontalScrollIndicator={false}>
-                {filters.map((item) => (
-                  <Pressable key={item.value} onPress={() => setFilter(item.value)} style={[styles.filter, filter === item.value && styles.filterActive]}>
-                    <Text style={[styles.filterText, filter === item.value && styles.filterTextActive]}>{item.label}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+              {!coachMode ? (
+                <ScrollView contentContainerStyle={styles.filters} horizontal showsHorizontalScrollIndicator={false}>
+                  {filters.map((item) => (
+                    <Pressable key={item.value} onPress={() => setFilter(item.value)} style={[styles.filter, filter === item.value && styles.filterActive]}>
+                      <Text style={[styles.filterText, filter === item.value && styles.filterTextActive]}>{item.label}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : <View style={styles.coachLibrarySpacer} />}
 
               <View style={styles.sectionHeading}>
-                <Text style={styles.sectionTitle}>Assigned Studies</Text>
+                <Text style={styles.sectionTitle}>{coachMode ? 'Published Studies' : 'Assigned Studies'}</Text>
                 <Text style={styles.sectionCount}>{studies.length} {studies.length === 1 ? 'study' : 'studies'}</Text>
               </View>
 
@@ -169,8 +175,8 @@ export default function StudyLibraryScreen() {
               ) : (
                 <View style={styles.emptyPanel}>
                   <SymbolView name={{ android: 'menu_book', ios: 'books.vertical.fill', web: 'menu_book' }} size={39} tintColor={colors.goldLight} />
-                  <Text style={styles.emptyTitle}>{overview.studies.length ? 'No studies in this section' : 'No studies assigned yet'}</Text>
-                  <Text style={styles.emptyText}>{overview.studies.length ? 'Choose another filter to view your studies.' : 'Published studies from your active course curriculum will appear here.'}</Text>
+                  <Text style={styles.emptyTitle}>{overview.studies.length ? 'No studies in this section' : coachMode ? 'No published studies yet' : 'No studies assigned yet'}</Text>
+                  <Text style={styles.emptyText}>{overview.studies.length ? 'Choose another filter to view your studies.' : coachMode ? 'Studies will appear here after an academy owner or administrator publishes them.' : 'Published studies from your active course curriculum will appear here.'}</Text>
                 </View>
               )}
             </>
@@ -203,6 +209,7 @@ const styles = StyleSheet.create({
   inlineError: { backgroundColor: 'rgba(91, 18, 27, 0.75)', borderColor: colors.danger, borderRadius: 9, borderWidth: 1, marginTop: 11, padding: 10 },
   inlineErrorText: { color: '#fecdd3', fontSize: 10, lineHeight: 15, textAlign: 'center' },
   filters: { gap: 8, paddingVertical: 15 },
+  coachLibrarySpacer: { height: 15 },
   filter: { backgroundColor: 'rgba(8, 15, 21, 0.92)', borderColor: colors.border, borderRadius: 17, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
   filterActive: { backgroundColor: colors.gold, borderColor: colors.goldLight },
   filterText: { color: colors.sandstone, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },

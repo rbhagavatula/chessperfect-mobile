@@ -10,10 +10,10 @@ import { PlayScreenHeader } from '@/components/play-screen-header';
 import { StudentStudyBlockPlayer, type StudentStudyLiveState } from '@/components/student-study-block';
 import { colors } from '@/constants/colors';
 import {
-  fetchStudentStudyDetail,
+  fetchAcademyStudyDetail,
   getAcademyStudyContext,
-  markStudentStudyCompleted,
-  updateStudentStudyProgress,
+  markAcademyStudyCompleted,
+  updateAcademyStudyProgress,
   type AcademyStudyContext,
   type StudentStudyDetail,
 } from '@/lib/academy-study';
@@ -77,7 +77,7 @@ export default function StudentStudyPlayerScreen() {
           throw new Error('This study is not assigned in the current live class.');
         }
       }
-      const nextDetail = await fetchStudentStudyDetail(nextContext, studyId, Number.isFinite(studyVersionId) ? studyVersionId : undefined);
+      const nextDetail = await fetchAcademyStudyDetail(nextContext, studyId, Number.isFinite(studyVersionId) ? studyVersionId : undefined);
       const flattened = flatten(nextDetail);
       const assignedLessonId = nextAssignment?.lessonId ?? (Number.isFinite(requestedLessonId) ? requestedLessonId : null);
       const assignedLessonIndex = assignedLessonId
@@ -148,10 +148,10 @@ export default function StudentStudyPlayerScreen() {
 
   const saveProgress = useCallback(async (markCompleted: boolean, targetIndex?: number) => {
     if (!context || !detail || !current) return;
-    await updateStudentStudyProgress(context, detail.study.id, current.lesson.id, current.block.id, markCompleted, detail.study.studyVersionId);
+    await updateAcademyStudyProgress(context, detail.study.id, current.lesson.id, current.block.id, markCompleted, detail.study.studyVersionId);
     if (markCompleted && !completedSet.has(current.block.id)) setCompletedIds((ids) => [...ids, current.block.id]);
     const target = typeof targetIndex === 'number' ? blocks[targetIndex] : null;
-    if (target) await updateStudentStudyProgress(context, detail.study.id, target.lesson.id, target.block.id, false, detail.study.studyVersionId);
+    if (target) await updateAcademyStudyProgress(context, detail.study.id, target.lesson.id, target.block.id, false, detail.study.studyVersionId);
   }, [blocks, completedSet, context, current, detail]);
 
   const moveTo = useCallback(async (nextIndex: number, completeCurrent: boolean) => {
@@ -194,8 +194,11 @@ export default function StudentStudyPlayerScreen() {
         setError('Complete every remaining block before finishing the study.');
         return;
       }
-      await markStudentStudyCompleted(context, detail.study.id, current.lesson.id, current.block.id, detail.study.studyVersionId);
-      Alert.alert('Study Complete', 'All lesson blocks are complete. Your assessment is now ready.', [
+      await markAcademyStudyCompleted(context, detail.study.id, current.lesson.id, current.block.id, detail.study.studyVersionId);
+      const completionMessage = context.academy.role === 'COACH'
+        ? 'All lesson blocks are complete. Your study progress has been saved.'
+        : 'All lesson blocks are complete. Your assessment is now ready.';
+      Alert.alert('Study Complete', completionMessage, [
         { onPress: () => router.back(), text: 'Back to Library' },
       ]);
     } catch (caught) {

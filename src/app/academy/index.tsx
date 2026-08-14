@@ -9,7 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CivBackdrop, OrnamentDivider, RoyalCorners } from '@/components/civ-ornament';
 import { PlayScreenHeader } from '@/components/play-screen-header';
 import { colors } from '@/constants/colors';
-import { type AcademyMembership, fetchStudentAcademies, selectAcademy } from '@/lib/academy';
+import { type AcademyMembership, fetchMobileAcademies, selectAcademy } from '@/lib/academy';
 
 export default function AcademySelectionScreen() {
   const { choose } = useLocalSearchParams<{ choose?: string }>();
@@ -23,7 +23,9 @@ export default function AcademySelectionScreen() {
     setError(null);
     try {
       await selectAcademy(membership, count);
-      router.replace('/academy/student-dashboard');
+      router.replace(membership.role?.trim().toUpperCase() === 'COACH'
+        ? '/academy/coach-dashboard'
+        : '/academy/student-dashboard');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to open this academy.');
       setOpeningTenantId(null);
@@ -34,7 +36,7 @@ export default function AcademySelectionScreen() {
     setLoading(true);
     setError(null);
     try {
-      const available = await fetchStudentAcademies();
+      const available = await fetchMobileAcademies();
       if (available.length === 1 && choose !== '1') {
         await openAcademy(available[0], 1);
         return;
@@ -62,7 +64,7 @@ export default function AcademySelectionScreen() {
             <View style={styles.statePanel}>
               <ActivityIndicator color={colors.goldLight} size="large" />
               <Text style={styles.stateTitle}>Opening your academy...</Text>
-              <Text style={styles.stateCopy}>Checking your active student membership.</Text>
+              <Text style={styles.stateCopy}>Checking your active academy memberships.</Text>
             </View>
           ) : error ? (
             <View style={styles.statePanel}>
@@ -84,8 +86,8 @@ export default function AcademySelectionScreen() {
                 size={46}
                 tintColor={colors.goldLight}
               />
-              <Text style={styles.stateTitle}>No student academy found</Text>
-              <Text style={styles.stateCopy}>Your account does not have an active student membership.</Text>
+              <Text style={styles.stateTitle}>No mobile academy found</Text>
+              <Text style={styles.stateCopy}>Your account does not have an active student or coach membership.</Text>
             </View>
           ) : (
             <>
@@ -126,7 +128,7 @@ export default function AcademySelectionScreen() {
                         </View>
                         <Text numberOfLines={2} style={styles.academyName}>{membership.academyName}</Text>
                         <View style={styles.studentPill}>
-                          <Text style={styles.studentPillText}>STUDENT</Text>
+                          <Text style={styles.studentPillText}>{membership.role?.trim().toUpperCase()}</Text>
                         </View>
                         <View style={styles.enterRow}>
                           {opening ? <ActivityIndicator color={colors.goldLight} size="small" /> : null}

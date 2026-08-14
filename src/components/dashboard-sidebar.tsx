@@ -56,7 +56,7 @@ export function DashboardSidebar({
           <Image
             accessibilityLabel="ChessPerfect"
             contentFit="contain"
-            source={require('@/assets/images/chessperfect-logo-transparent-v2.png')}
+            source={require('@/assets/images/chessperfect-brand-mark.png')}
             style={styles.logo}
           />
         </View>

@@ -71,6 +71,16 @@ export type StudentLearnOverview = {
   studies: StudentStudySummary[];
 };
 
+type AcademyStudyCatalogItem = {
+  currentPublishedVersionId: number | null;
+  currentPublishedVersionLabel: string | null;
+  description: string;
+  id: number;
+  photoKey: string;
+  state: 'DRAFT' | 'PUBLISHED';
+  title: string;
+};
+
 export type StudentStudyDetail = {
   allBlocksCompleted: boolean;
   completedBlockIds: number[];
@@ -110,23 +120,55 @@ export function academyAssetSource(context: AcademyStudyContext, assetKey?: stri
   };
 }
 
-export function fetchStudentStudyOverview(context: AcademyStudyContext) {
-  return getJsonFromOrigin<StudentLearnOverview>('/api/v1/student/learn', context.origin, context.accessToken);
+export async function fetchAcademyStudyOverview(context: AcademyStudyContext) {
+  if (context.academy.role === 'STUDENT') {
+    return getJsonFromOrigin<StudentLearnOverview>('/api/v1/student/learn', context.origin, context.accessToken);
+  }
+
+  const catalog = await getJsonFromOrigin<AcademyStudyCatalogItem[]>(
+    '/api/v1/academy/studies',
+    context.origin,
+    context.accessToken,
+  );
+  const studies = catalog
+    .filter((study) => study.state === 'PUBLISHED' && study.currentPublishedVersionId)
+    .map<StudentStudySummary>((study) => ({
+      description: study.description,
+      id: study.id,
+      photoKey: study.photoKey,
+      progressStatus: 'OPEN',
+      sourceId: study.id,
+      sourceTitle: 'Academy study',
+      sourceType: 'COACH_LIBRARY',
+      studyVersionId: study.currentPublishedVersionId,
+      studyVersionLabel: study.currentPublishedVersionLabel,
+      title: study.title,
+    }));
+
+  return {
+    batchId: null,
+    batchName: 'Coach learning library',
+    courseId: null,
+    courseTitle: 'Published Studies',
+    studies,
+  } satisfies StudentLearnOverview;
 }
 
-export function fetchStudentStudyDetail(
+export function fetchAcademyStudyDetail(
   context: AcademyStudyContext,
   studyId: number,
   studyVersionId?: number | null,
 ) {
   return getJsonFromOrigin<StudentStudyDetail>(
-    withStudyVersion(`/api/v1/student/learn/studies/${studyId}`, studyVersionId),
+    context.academy.role === 'COACH'
+      ? `/api/v1/academy/studies/${studyId}/learn`
+      : withStudyVersion(`/api/v1/student/learn/studies/${studyId}`, studyVersionId),
     context.origin,
     context.accessToken,
   );
 }
 
-export function updateStudentStudyProgress(
+export function updateAcademyStudyProgress(
   context: AcademyStudyContext,
   studyId: number,
   lessonId: number,
@@ -135,14 +177,16 @@ export function updateStudentStudyProgress(
   studyVersionId?: number | null,
 ) {
   return postAuthorizedJsonFromOrigin<void>(
-    withStudyVersion(`/api/v1/student/learn/studies/${studyId}/progress`, studyVersionId),
+    context.academy.role === 'COACH'
+      ? `/api/v1/academy/studies/${studyId}/learn/progress`
+      : withStudyVersion(`/api/v1/student/learn/studies/${studyId}/progress`, studyVersionId),
     context.origin,
     { blockId, lessonId, markCompleted },
     context.accessToken,
   );
 }
 
-export function markStudentStudyCompleted(
+export function markAcademyStudyCompleted(
   context: AcademyStudyContext,
   studyId: number,
   lessonId: number,
@@ -150,7 +194,9 @@ export function markStudentStudyCompleted(
   studyVersionId?: number | null,
 ) {
   return postAuthorizedJsonFromOrigin<void>(
-    withStudyVersion(`/api/v1/student/learn/studies/${studyId}/complete`, studyVersionId),
+    context.academy.role === 'COACH'
+      ? `/api/v1/academy/studies/${studyId}/learn/complete`
+      : withStudyVersion(`/api/v1/student/learn/studies/${studyId}/complete`, studyVersionId),
     context.origin,
     { blockId, lessonId, markCompleted: true },
     context.accessToken,

@@ -19,6 +19,11 @@ export type ClassroomJoin = {
   status: 'CANCELLED' | 'COMPLETED' | 'LIVE' | 'SCHEDULED';
 };
 
+export type ClassroomEndResponse = {
+  sessionId: number;
+  status: 'COMPLETED';
+};
+
 export type ClassroomBoard = {
   arrowsJson?: string | null;
   fen: string;
@@ -53,10 +58,40 @@ export type ClassroomActivity = {
   mcqQuestionText?: string | null;
   myResponse?: ClassroomActivityResponse | null;
   sessionId: number;
+  sourceBlockId?: number | null;
+  sourceLessonId?: number | null;
+  sourceStudyId?: number | null;
   startedAt?: string | null;
   status: 'ACTIVE' | 'CLOSED';
   title: string;
   type: 'INTERACTIVE' | 'MCQ';
+};
+
+export type ClassroomStudy = {
+  id: number;
+  state: 'DRAFT' | 'PUBLISHED';
+  title: string;
+};
+
+export type ClassroomStudyBlock = {
+  content?: string | null;
+  id: number;
+  lessonId: number;
+  title: string;
+  type: 'INTERACTIVE' | 'MCQ' | 'MEMO' | 'PIECE_MOVE' | 'VIDEO';
+};
+
+export type ClassroomStudyLesson = {
+  blocks: ClassroomStudyBlock[];
+  id: number;
+  state: 'DRAFT' | 'PUBLISHED';
+  studyId: number;
+  title: string;
+};
+
+export type ClassroomStudyDetail = {
+  lessons: ClassroomStudyLesson[];
+  study?: ClassroomStudy | null;
 };
 
 export type ClassroomLeaderboardEntry = {
@@ -76,6 +111,15 @@ export type ClassroomActivityHistory = {
   submittedAt: string;
   title?: string | null;
   type?: 'INTERACTIVE' | 'MCQ' | null;
+};
+
+export type ClassroomActivityParticipant = {
+  completed: boolean;
+  correct?: boolean | null;
+  score?: number | null;
+  studentName: string;
+  studentUserId: number;
+  submittedAt?: string | null;
 };
 
 export type ClassroomPresence = {
@@ -128,6 +172,7 @@ export type ClassroomStudySnapshotRequest = {
 
 export type ClassroomActivitySummary = {
   activeActivity?: ClassroomActivity | null;
+  activeParticipants?: ClassroomActivityParticipant[] | null;
   activities: ClassroomActivity[];
   answeredCount?: number | null;
   leaderboard: ClassroomLeaderboardEntry[];
@@ -172,6 +217,19 @@ export function joinClassroom(context: ClassroomContext, sessionId: number) {
   );
 }
 
+export function endClassroom(
+  context: ClassroomContext,
+  sessionId: number,
+  sendSummaryEmail = true,
+) {
+  return postAuthorizedJsonFromOrigin<ClassroomEndResponse>(
+    classroomPath(sessionId, '/end'),
+    context.origin,
+    { sendSummaryEmail },
+    context.accessToken,
+  );
+}
+
 export function fetchClassroomBoard(context: ClassroomContext, sessionId: number) {
   return getJsonFromOrigin<ClassroomBoard>(
     classroomPath(sessionId, '/board'),
@@ -180,10 +238,75 @@ export function fetchClassroomBoard(context: ClassroomContext, sessionId: number
   );
 }
 
+export function publishClassroomBoard(
+  context: ClassroomContext,
+  sessionId: number,
+  board: Omit<ClassroomBoard, 'sessionId' | 'updatedAt'>,
+) {
+  return postAuthorizedJsonFromOrigin<ClassroomBoard>(
+    classroomPath(sessionId, '/board'),
+    context.origin,
+    board,
+    context.accessToken,
+  );
+}
+
+export function updateClassroomBroadcastMode(
+  context: ClassroomContext,
+  sessionId: number,
+  broadcastMode: ClassroomBroadcastMode,
+) {
+  return postAuthorizedJsonFromOrigin<unknown>(
+    classroomPath(sessionId, '/broadcast-mode'),
+    context.origin,
+    { broadcastMode },
+    context.accessToken,
+  );
+}
+
 export function fetchClassroomActivities(context: ClassroomContext, sessionId: number) {
   return getJsonFromOrigin<ClassroomActivitySummary>(
     classroomPath(sessionId, '/activities'),
     context.origin,
+    context.accessToken,
+  );
+}
+
+export function fetchClassroomStudies(context: ClassroomContext) {
+  return getJsonFromOrigin<ClassroomStudy[]>(
+    '/api/v1/academy/studies',
+    context.origin,
+    context.accessToken,
+  );
+}
+
+export function fetchClassroomStudy(context: ClassroomContext, studyId: number) {
+  return getJsonFromOrigin<ClassroomStudyDetail>(
+    `/api/v1/academy/studies/${studyId}`,
+    context.origin,
+    context.accessToken,
+  );
+}
+
+export function pushClassroomActivity(
+  context: ClassroomContext,
+  sessionId: number,
+  sourceBlockId: number,
+  durationSeconds = 180,
+) {
+  return postAuthorizedJsonFromOrigin<ClassroomActivitySummary>(
+    classroomPath(sessionId, '/activities'),
+    context.origin,
+    { durationSeconds, maxScore: 1, sourceBlockId },
+    context.accessToken,
+  );
+}
+
+export function closeClassroomActivity(context: ClassroomContext, activityId: number) {
+  return postAuthorizedJsonFromOrigin<ClassroomActivitySummary>(
+    `/api/v1/class-sessions/activities/${activityId}/close`,
+    context.origin,
+    {},
     context.accessToken,
   );
 }

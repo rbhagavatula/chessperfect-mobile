@@ -1,11 +1,9 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { SymbolView } from 'expo-symbols';
-import * as WebBrowser from 'expo-web-browser';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  AppState,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -19,7 +17,6 @@ import { CivBackdrop, RoyalCorners } from '@/components/civ-ornament';
 import { PlayScreenHeader } from '@/components/play-screen-header';
 import { colors } from '@/constants/colors';
 import {
-  createStudentFeeCheckout,
   fetchStudentBillingCycles,
   fetchStudentPaymentHistory,
   getAcademyBillingContext,
@@ -30,6 +27,12 @@ import {
   type StudentBillingCycle,
   type StudentPayment,
 } from '@/lib/academy-billing';
+import {
+  createStudentGooglePlayCheckout,
+  fetchStudentGooglePlayFeeQuote,
+  useGooglePlayCheckout,
+  type GooglePlayFeeQuote,
+} from '@/lib/google-play-billing';
 
 type ViewMode = 'BILLING' | 'HISTORY';
 type HistoryFilter = 'ALL' | PaymentStatus;
@@ -49,8 +52,8 @@ const paymentErrors: Record<string, string> = {
   CYCLE_ALREADY_PAID: 'This fee has already been paid.',
   CYCLE_VOID: 'This fee is no longer payable.',
   PAYMENT_ALREADY_EXISTS_FOR_BILLING_CYCLE: 'A payment is already being processed.',
-  RAZORPAY_KEY_MISSING: 'The payment gateway is not configured.',
-  RAZORPAY_ORDER_CREATE_FAILED: 'Razorpay could not initialize the payment.',
+  GOOGLE_PLAY_BILLING_DISABLED: 'Google Play Billing is not configured yet.',
+  GOOGLE_PLAY_PURCHASE_NOT_COMPLETED: 'Google Play has not completed this purchase.',
   ZERO_FEE_MARKED_PAID: 'This no-fee cycle has been marked paid.',
 };
 
@@ -95,11 +98,11 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function AmountCell({ label, strong, value }: { label: string; strong?: boolean; value: number }) {
+function AmountCell({ full, label, strong, value }: { full?: boolean; label: string; strong?: boolean; value: number | string }) {
   return (
-    <View style={[styles.amountCell, strong && styles.amountCellStrong]}>
+    <View style={[styles.amountCell, full && styles.amountCellFull, strong && styles.amountCellStrong]}>
       <Text style={styles.amountLabel}>{label}</Text>
-      <Text style={[styles.amountValue, strong && styles.amountValueStrong]}>{formatInr(value)}</Text>
+      <Text style={[styles.amountValue, strong && styles.amountValueStrong]}>{typeof value === 'string' ? value : formatInr(value)}</Text>
     </View>
   );
 }
@@ -107,13 +110,18 @@ function AmountCell({ label, strong, value }: { label: string; strong?: boolean;
 function BillingCard({
   busy,
   cycle,
+  googlePlayAmount,
+  googlePlayDisplayPrice,
   onPay,
 }: {
   busy: boolean;
   cycle: StudentBillingCycle;
+  googlePlayAmount?: number;
+  googlePlayDisplayPrice?: string;
   onPay: (cycle: StudentBillingCycle) => void;
 }) {
   const payable = payableAmount(cycle);
+  const checkoutAmount = googlePlayAmount ?? payable;
   const status = displayCycleStatus(cycle);
   const canPay = isPayableCycle(cycle);
 
@@ -129,20 +137,26 @@ function BillingCard({
       </View>
 
       <View style={styles.amountGrid}>
-        <AmountCell label="BASE FEE" value={cycle.baseFeeAmountInr} />
-        <AmountCell label="WAIVER" value={cycle.waiverAmountInr} />
-        <AmountCell label={cycle.gstPercent > 0 ? `GST INCLUDED (${cycle.gstPercent}%)` : 'GST INCLUDED'} value={cycle.gstAmountInr} />
-        <AmountCell label={status === 'PAID' ? 'NET PAID' : 'NET PAYABLE'} strong value={payable} />
+        {canPay ? (
+          <AmountCell full label="ANDROID APP TOTAL" strong value={googlePlayDisplayPrice || checkoutAmount} />
+        ) : (
+          <>
+            <AmountCell label="BASE FEE" value={cycle.baseFeeAmountInr} />
+            <AmountCell label="WAIVER" value={cycle.waiverAmountInr} />
+            <AmountCell label={cycle.gstPercent > 0 ? `GST INCLUDED (${cycle.gstPercent}%)` : 'GST INCLUDED'} value={cycle.gstAmountInr} />
+            <AmountCell label="NET PAID" strong value={payable} />
+          </>
+        )}
       </View>
 
       {canPay ? (
         <Pressable
-          accessibilityLabel={`Pay ${formatInr(payable)} for ${monthLabel(cycle.periodStart, cycle.periodEnd)}`}
+          accessibilityLabel={`Pay ${formatInr(checkoutAmount)} for ${monthLabel(cycle.periodStart, cycle.periodEnd)}`}
           disabled={busy}
           onPress={() => onPay(cycle)}
           style={({ pressed }) => [styles.payButton, pressed && styles.pressed, busy && styles.disabled]}>
           {busy ? <ActivityIndicator color="#211305" size="small" /> : <SymbolView name={{ android: 'payments', ios: 'creditcard.fill', web: 'payments' }} size={19} tintColor="#211305" />}
-          <Text style={styles.payButtonText}>{busy ? 'OPENING PAYMENT...' : `PAY ${formatInr(payable)}`}</Text>
+          <Text style={styles.payButtonText}>{busy ? 'OPENING GOOGLE PLAY...' : `PAY ${formatInr(checkoutAmount)}`}</Text>
         </Pressable>
       ) : status === 'PAID' ? (
         <View style={styles.paidNote}>
@@ -182,13 +196,13 @@ export default function StudentFeesScreen() {
   const [context, setContext] = useState<AcademyBillingContext | null>(null);
   const [cycles, setCycles] = useState<StudentBillingCycle[]>([]);
   const [payments, setPayments] = useState<StudentPayment[]>([]);
+  const [feeQuotes, setFeeQuotes] = useState<Record<number, GooglePlayFeeQuote>>({});
   const [mode, setMode] = useState<ViewMode>('BILLING');
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('ALL');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [payingCycleId, setPayingCycleId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const checkoutOpen = useRef(false);
 
   const loadFees = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -203,6 +217,13 @@ export default function StudentFeesScreen() {
       setContext(nextContext);
       setCycles(nextCycles);
       setPayments(nextPayments);
+      const quotes = await Promise.all(nextCycles.filter(isPayableCycle).map((cycle) =>
+        fetchStudentGooglePlayFeeQuote(
+          { accessToken: nextContext.accessToken, origin: nextContext.origin },
+          cycle.id,
+        ).catch(() => null),
+      ));
+      setFeeQuotes(Object.fromEntries(quotes.filter((quote): quote is GooglePlayFeeQuote => Boolean(quote)).map((quote) => [quote.cycleId, quote])));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load your fees.');
     } finally {
@@ -213,16 +234,31 @@ export default function StudentFeesScreen() {
 
   useFocusEffect(useCallback(() => {
     void loadFees();
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active' && checkoutOpen.current) {
-        checkoutOpen.current = false;
-        void loadFees(true);
-      }
-    });
-    return () => subscription.remove();
   }, [loadFees]));
 
-  const totalDue = useMemo(() => cycles.filter(isPayableCycle).reduce((sum, cycle) => sum + payableAmount(cycle), 0), [cycles]);
+  const googlePlay = useGooglePlayCheckout({
+    onCompleted: async () => {
+      setPayingCycleId(null);
+      await loadFees(true);
+    },
+    onError: (message) => {
+      setPayingCycleId(null);
+      setError(paymentErrors[message] || message);
+    },
+  });
+  const { connected: playConnected, fetchProducts: fetchPlayProducts } = googlePlay;
+
+  useEffect(() => {
+    if (!playConnected) return;
+    const skus = [...new Set(Object.values(feeQuotes).map((quote) => `chessperfect_fee_inr_${quote.androidPayableInr}`))];
+    if (!skus.length) return;
+    void fetchPlayProducts({ skus, type: 'in-app' }).catch(() => undefined);
+  }, [feeQuotes, fetchPlayProducts, playConnected]);
+
+  const totalDue = useMemo(() => cycles.filter(isPayableCycle).reduce(
+    (sum, cycle) => sum + (feeQuotes[cycle.id]?.androidPayableInr ?? payableAmount(cycle)),
+    0,
+  ), [cycles, feeQuotes]);
   const paidCount = useMemo(() => cycles.filter((cycle) => displayCycleStatus(cycle) === 'PAID').length, [cycles]);
   const filteredPayments = useMemo(
     () => historyFilter === 'ALL' ? payments : payments.filter((payment) => payment.status === historyFilter),
@@ -234,18 +270,17 @@ export default function StudentFeesScreen() {
     setPayingCycleId(cycle.id);
     setError(null);
     try {
-      const checkoutUrl = await createStudentFeeCheckout(context, cycle.id);
-      checkoutOpen.current = true;
-      await WebBrowser.openBrowserAsync(checkoutUrl, {
-        createTask: false,
-        enableDefaultShareMenuItem: false,
-        toolbarColor: '#07131f',
-      });
+      const authorization = { accessToken: context.accessToken, origin: context.origin };
+      const checkout = await createStudentGooglePlayCheckout(authorization, cycle.id);
+      setFeeQuotes((current) => ({
+        ...current,
+        [cycle.id]: { cycleId: cycle.id, websitePayableInr: payableAmount(cycle), androidPayableInr: checkout.expectedAmountInr },
+      }));
+      await googlePlay.begin(checkout, authorization);
     } catch (caught) {
       const raw = caught instanceof Error ? caught.message : 'PAYMENT_INITIALIZATION_FAILED';
       setError(paymentErrors[raw] || raw || 'We could not start the payment. Please try again.');
       if (raw === 'CYCLE_ALREADY_PAID' || raw === 'ZERO_FEE_MARKED_PAID') void loadFees(true);
-    } finally {
       setPayingCycleId(null);
     }
   }
@@ -285,7 +320,11 @@ export default function StudentFeesScreen() {
 
               {mode === 'BILLING' ? (
                 cycles.length ? (
-                  <View style={styles.cards}>{cycles.map((cycle) => <BillingCard busy={payingCycleId === cycle.id} cycle={cycle} key={cycle.id} onPay={payCycle} />)}</View>
+                  <View style={styles.cards}>{cycles.map((cycle) => {
+                    const quote = feeQuotes[cycle.id];
+                    const product = quote ? googlePlay.products.find((item) => item.id === `chessperfect_fee_inr_${quote.androidPayableInr}`) : undefined;
+                    return <BillingCard busy={payingCycleId === cycle.id} cycle={cycle} googlePlayAmount={quote?.androidPayableInr} googlePlayDisplayPrice={product?.displayPrice} key={cycle.id} onPay={payCycle} />;
+                  })}</View>
                 ) : (
                   <View style={styles.emptyPanel}><SymbolView name={{ android: 'receipt_long', ios: 'doc.text.fill', web: 'receipt_long' }} size={38} tintColor={colors.goldLight} /><Text style={styles.emptyTitle}>No billing cycles available</Text><Text style={styles.stateText}>Your academy has not generated a fee cycle for the active enrollment.</Text></View>
                 )
@@ -302,7 +341,7 @@ export default function StudentFeesScreen() {
                 </>
               )}
 
-              <Text style={styles.paymentNote}>Online payments are securely completed through the ChessPerfect payment portal. GST, when applicable, is already included in the payable amount.</Text>
+              <Text style={styles.paymentNote}>Payments in the Android app are securely processed by Google Play. The amount shown on the Google Play confirmation screen is the final app price.</Text>
             </>
           ) : null}
         </ScrollView>
@@ -327,7 +366,7 @@ const styles = StyleSheet.create({
   cards: { gap: 12, marginTop: 13 }, cycleCard: { backgroundColor: 'rgba(7,15,22,0.96)', borderColor: colors.border, borderRadius: 14, borderWidth: 1, overflow: 'hidden', padding: 15 },
   cardHeading: { alignItems: 'flex-start', flexDirection: 'row', gap: 10 }, cardHeadingCopy: { flex: 1, minWidth: 0 }, period: { color: colors.cream, fontFamily: 'serif', fontSize: 18, fontWeight: '900' }, periodDates: { color: colors.muted, fontSize: 8, marginTop: 3 },
   statusPill: { borderRadius: 13, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 5 }, statusPaid: { backgroundColor: 'rgba(20,111,73,0.25)', borderColor: 'rgba(85,210,157,0.65)' }, statusFailed: { backgroundColor: 'rgba(132,24,37,0.25)', borderColor: 'rgba(251,113,133,0.65)' }, statusProcessing: { backgroundColor: 'rgba(24,89,130,0.27)', borderColor: 'rgba(92,179,232,0.6)' }, statusDue: { backgroundColor: 'rgba(178,125,27,0.22)', borderColor: colors.gold }, statusText: { color: colors.cream, fontSize: 7, fontWeight: '900', letterSpacing: 0.7 },
-  amountGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 13 }, amountCell: { backgroundColor: 'rgba(0,0,0,0.22)', borderColor: 'rgba(255,255,255,0.09)', borderRadius: 8, borderWidth: 1, minHeight: 55, padding: 9, width: '48.8%' }, amountCellStrong: { backgroundColor: 'rgba(190,136,34,0.12)', borderColor: colors.goldDark }, amountLabel: { color: colors.muted, fontSize: 7, fontWeight: '800', letterSpacing: 0.55 }, amountValue: { color: colors.sandstone, fontSize: 13, fontWeight: '700', marginTop: 5 }, amountValueStrong: { color: colors.goldLight, fontFamily: 'serif', fontSize: 16, fontWeight: '900' },
+  amountGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 13 }, amountCell: { backgroundColor: 'rgba(0,0,0,0.22)', borderColor: 'rgba(255,255,255,0.09)', borderRadius: 8, borderWidth: 1, minHeight: 55, padding: 9, width: '48.8%' }, amountCellFull: { width: '100%' }, amountCellStrong: { backgroundColor: 'rgba(190,136,34,0.12)', borderColor: colors.goldDark }, amountLabel: { color: colors.muted, fontSize: 7, fontWeight: '800', letterSpacing: 0.55 }, amountValue: { color: colors.sandstone, fontSize: 13, fontWeight: '700', marginTop: 5 }, amountValueStrong: { color: colors.goldLight, fontFamily: 'serif', fontSize: 16, fontWeight: '900' },
   payButton: { alignItems: 'center', backgroundColor: colors.goldLight, borderColor: '#fff0aa', borderRadius: 9, borderWidth: 1, flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 13, minHeight: 45 }, payButtonText: { color: '#211305', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 }, pressed: { opacity: 0.82 }, disabled: { opacity: 0.5 },
   paidNote: { alignItems: 'center', flexDirection: 'row', gap: 7, justifyContent: 'flex-end', marginTop: 12 }, paidNoteText: { color: '#a7e7c9', fontSize: 9, fontWeight: '800' },
   filtersScroller: { flexGrow: 0, height: 50 }, filters: { alignItems: 'center', gap: 7, paddingTop: 13 }, filter: { alignItems: 'center', alignSelf: 'center', backgroundColor: 'rgba(7,15,22,0.94)', borderColor: colors.goldDark, borderRadius: 16, borderWidth: 1, height: 31, justifyContent: 'center', paddingHorizontal: 13 }, filterActive: { backgroundColor: colors.goldLight, borderColor: '#fff1b8' }, filterText: { color: colors.sandstone, fontSize: 8, fontWeight: '900' }, filterTextActive: { color: '#211305' },

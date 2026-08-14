@@ -7,6 +7,9 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "development"
+      },
       "android": {
         "buildType": "apk"
       }
@@ -20,6 +23,11 @@
     "production": {}
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
+    }
   }
 }

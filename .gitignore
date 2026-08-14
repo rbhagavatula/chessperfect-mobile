@@ -10,6 +10,7 @@ node_modules/
 dist/
 dist-android/
 dist-video-check/
+dist-release-check/
 web-build/
 expo-env.d.ts
 
@@ -41,6 +42,7 @@ yarn-error.*
 .claude/
 tmp-*.png
 tmp-*.xml
+store-assets/android/raw/
 
 # local env files
 .env*.local
