@@ -1,0 +1,3 @@
+Fixed Single Study puzzle pushes from coach devices.
+Coaches now see the active puzzle immediately after pushing it.
+Student devices now show standard-position interactive puzzles reliably.

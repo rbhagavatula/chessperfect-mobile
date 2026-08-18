@@ -61,6 +61,9 @@ export type ClassroomActivity = {
   sourceBlockId?: number | null;
   sourceLessonId?: number | null;
   sourceStudyId?: number | null;
+  sourceLessonTitle?: string | null;
+  sourcePuzzleNumber?: number | null;
+  sourceStudyTitle?: string | null;
   startedAt?: string | null;
   status: 'ACTIVE' | 'CLOSED';
   title: string;

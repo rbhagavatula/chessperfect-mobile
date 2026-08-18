@@ -60,3 +60,9 @@ Welcome to ChessPerfect for Android.
 - Access academy studies, classes, attendance and account information.
 - Join live classes with the board available alongside the meeting.
 - Purchase eligible plans and academy fees securely through Google Play.
+
+## Testing release 1.0.1 notes
+
+- Fixed Single Study puzzle pushes from coach devices.
+- Coaches now see the active puzzle immediately after pushing it.
+- Student devices now show standard-position interactive puzzles reliably.

@@ -657,6 +657,7 @@ function ActivityPanel({
   now,
   onSubmit,
   pieceTheme,
+  readOnly = false,
   saving,
 }: {
   activity: ClassroomActivity;
@@ -665,6 +666,7 @@ function ActivityPanel({
   now: number;
   onSubmit: (answer: string) => void;
   pieceTheme: PieceThemeName;
+  readOnly?: boolean;
   saving: boolean;
 }) {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
@@ -683,13 +685,13 @@ function ActivityPanel({
         {remaining ? <Text style={styles.timer}>{remaining}</Text> : null}
       </View>
       {activity.content ? <Text style={styles.activityCopy}>{activity.content}</Text> : null}
-      {activity.type === 'INTERACTIVE' && activity.interactiveStartFen ? (
-            <InteractiveActivity
-              key={`interactive-${activity.id}`}
+      {activity.type === 'INTERACTIVE' ? (
+        <InteractiveActivity
+          key={`interactive-${activity.id}`}
           activity={activity}
           boardSize={boardSize}
           boardTheme={boardTheme}
-          disabled={saving}
+          disabled={saving || readOnly}
           onSubmit={onSubmit}
           pieceTheme={pieceTheme}
         />
@@ -699,7 +701,7 @@ function ActivityPanel({
           {options.map((option) => (
             <Pressable
               key={option.id}
-              disabled={saving}
+              disabled={saving || readOnly}
               onPress={() => setSelectedOption(option.id)}
               style={({ pressed }) => [
                 styles.optionButton,
@@ -710,12 +712,12 @@ function ActivityPanel({
               <Text style={styles.optionText}>{option.text}</Text>
             </Pressable>
           ))}
-          <Pressable
+          {!readOnly ? <Pressable
             disabled={!selectedOption || saving}
             onPress={() => selectedOption && onSubmit(selectedOption)}
             style={({ pressed }) => [styles.submitButton, (!selectedOption || saving) && styles.disabled, pressed && styles.pressed]}>
             {saving ? <ActivityIndicator color={colors.cream} size="small" /> : <Text style={styles.submitText}>SUBMIT ANSWER</Text>}
-          </Pressable>
+          </Pressable> : <Text style={styles.activityHint}>Student preview · Answers are submitted from student devices.</Text>}
         </View>
       )}
       {response ? (
@@ -948,6 +950,8 @@ export default function LiveClassroomScreen() {
       setActivities(summary);
       setBroadcastBlockId(sourceBlockId);
       setBroadcastMessage(successMessage);
+      setOptionsOpen(false);
+      setToolPanel(null);
       return true;
     } catch (caught) {
       if (mounted.current) setBroadcastMessage(classroomErrorMessage(caught));
@@ -1245,17 +1249,18 @@ export default function LiveClassroomScreen() {
               <Text style={styles.multiStudyCopy}>{assignment ? 'Open the assigned study in LiveClassMode. Your coach can follow your progress but cannot control your board.' : 'Your coach has not assigned an individual study yet.'}</Text>
               {assignment ? <Pressable onPress={openAssignedStudy} style={({ pressed }) => [styles.submitButton, pressed && styles.pressed]}><Text style={styles.submitText}>OPEN ASSIGNED STUDY</Text></Pressable> : null}
             </View>
-          ) : activeActivity && !isCoach ? (
+          ) : activeActivity ? (
             <>
-              {activityError ? <View style={styles.warning}><Text style={styles.warningText}>{activityError}</Text></View> : null}
+              {!isCoach && activityError ? <View style={styles.warning}><Text style={styles.warningText}>{activityError}</Text></View> : null}
               <ActivityPanel
                 key={`activity-${activeActivity.id}-${activityAttemptVersion}`}
                 activity={activeActivity}
                 boardSize={boardSize}
                 boardTheme={boardTheme}
                 now={now}
-                onSubmit={(answer) => void submitAnswer(answer)}
+                onSubmit={(answer) => { if (!isCoach) void submitAnswer(answer); }}
                 pieceTheme={pieceTheme}
+                readOnly={isCoach}
                 saving={activitySaving}
               />
             </>
