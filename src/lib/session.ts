@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 
 import { postAuthorizedJson } from '@/lib/api';
 import { refreshAuthToken } from '@/lib/auth';
+import { unregisterCurrentDeviceFromPush } from '@/lib/push-notifications';
 
 const keys = {
   accessToken: 'chessperfect.accessToken',
@@ -144,6 +145,7 @@ export async function clearSession() {
 
 async function notifyServerLogout(session: Session) {
   await Promise.allSettled([
+    unregisterCurrentDeviceFromPush(session.accessToken),
     session.loginSessionId
       ? postAuthorizedJson<{ ok: boolean }>(
           '/api/v1/global/login-sessions/logout',

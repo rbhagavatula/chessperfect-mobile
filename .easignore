@@ -1,9 +1,9 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# Keep EAS uploads focused on source and required build assets.
 
 # dependencies
 node_modules/
 
-# Expo
+# Expo outputs and caches
 .expo/
 .expo-validation/
 .expo-*-validation/
@@ -14,45 +14,44 @@ dist-release-check/
 web-build/
 expo-env.d.ts
 
-# Native
+# generated native folders
+/ios
+/android
 .kotlin/
+
+# credentials that must never be uploaded from the workspace
 *.orig.*
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
+*.pem
 
-# Metro
+# Metro and package-manager logs
 .metro-health-check*
 metro-*.log
 metro.err.log
 metro.out.log
-
-# debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 
-# macOS
+# local operating-system and editor files
 .DS_Store
-*.pem
-
-# local development agents and device-test artifacts
 .claude/
+
+# local development and device-test artifacts
 /artifacts/
 tmp-*.png
 tmp-*.xml
 store-assets/android/raw/
 
-# local env files
+# local environment files
 .env*.local
 
-# typescript
+# TypeScript caches
 *.tsbuildinfo
 
-example
-
-# generated native folders
-/ios
-/android
+# examples are not part of the application build
+/example

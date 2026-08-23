@@ -1,22 +1,23 @@
 {
   "name": "chessperfect-mobile",
   "main": "expo-router/entry",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "dependencies": {
-    "@expo/ui": "~57.0.11",
+    "@expo/ui": "~57.0.12",
     "@react-native-async-storage/async-storage": "2.2.0",
     "chess.js": "^1.4.0",
-    "expo": "~57.0.14",
+    "expo": "~57.0.15",
     "expo-constants": "~57.0.12",
-    "expo-dev-client": "~57.0.13",
+    "expo-dev-client": "~57.0.14",
     "expo-device": "~57.0.1",
     "expo-font": "~57.0.1",
     "expo-glass-effect": "~57.0.1",
     "expo-iap": "^5.3.0",
     "expo-image": "~57.0.3",
     "expo-linear-gradient": "~57.0.1",
-    "expo-linking": "~57.0.6",
-    "expo-router": "~57.0.14",
+    "expo-linking": "~57.0.7",
+    "expo-notifications": "~57.0.13",
+    "expo-router": "~57.0.15",
     "expo-secure-store": "~57.0.1",
     "expo-splash-screen": "~57.0.7",
     "expo-status-bar": "~57.0.1",
@@ -40,6 +41,12 @@
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.1",
     "typescript": "~6.0.3"
+  },
+  "overrides": {
+    "metro": "0.84.5",
+    "metro-config": "0.84.5",
+    "metro-transform-worker": "0.84.5",
+    "uuid": "11.1.1"
   },
   "scripts": {
     "start": "expo start",

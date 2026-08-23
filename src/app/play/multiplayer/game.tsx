@@ -463,7 +463,7 @@ export default function MultiplayerGameScreen() {
             {snapshot.status === 'ENDED' ? (
               <>
                 <Text style={styles.resultTitle}>{resultTitle(snapshot, mySide)}</Text>
-                <Text style={styles.resultMeta}>{snapshot.resultCode ?? ''} · {(snapshot.termination ?? snapshot.result ?? 'GAME OVER').replaceAll('_', ' ')}</Text>
+                <Text style={styles.resultMeta}>{snapshot.resultCode ?? ''} · {terminationLabel(snapshot)}</Text>
               </>
             ) : connectionError ? (
               <>
@@ -563,9 +563,17 @@ export default function MultiplayerGameScreen() {
 function resultTitle(snapshot: MultiplayerSnapshot, mySide: MultiplayerSide | null) {
   const winner = snapshot.winnerColor
     ?? (snapshot.resultCode === '1-0' ? 'w' : snapshot.resultCode === '0-1' ? 'b' : null);
-  if (!winner) return snapshot.resultCode === '1/2-1/2' ? 'The battle ends in a draw' : 'The battle has ended';
+  if (!winner) {
+    if (snapshot.termination === 'REPETITION') return 'Draw by threefold repetition';
+    return snapshot.resultCode === '1/2-1/2' ? 'The battle ends in a draw' : 'The battle has ended';
+  }
   if (!mySide) return winner === 'w' ? 'White is victorious' : 'Black is victorious';
   return winner === mySide ? 'Victory' : 'Defeat';
+}
+
+function terminationLabel(snapshot: MultiplayerSnapshot) {
+  if (snapshot.termination === 'REPETITION') return 'THREEFOLD REPETITION';
+  return (snapshot.termination ?? snapshot.result ?? 'GAME OVER').replaceAll('_', ' ');
 }
 
 function PlayerBar({

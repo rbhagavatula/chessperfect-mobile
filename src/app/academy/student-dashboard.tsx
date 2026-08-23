@@ -135,6 +135,14 @@ export default function StudentDashboardScreen() {
       router.push('/academy/fees' as Href);
       return;
     }
+    if (label === 'MY ATTENDANCE') {
+      router.push('/academy/attendance' as Href);
+      return;
+    }
+    if (label === 'MY DATABASE') {
+      router.push('/my-database' as Href);
+      return;
+    }
     Alert.alert(label, `${label} is the next Student Dashboard experience we will build.`);
   }
 

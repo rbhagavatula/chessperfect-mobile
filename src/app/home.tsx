@@ -1,8 +1,8 @@
 import { Image, type ImageSource } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, type Href, useLocalSearchParams } from 'expo-router';
+import { router, type Href, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,6 +12,8 @@ import { colors } from '@/constants/colors';
 import { getJson } from '@/lib/api';
 import { clearSelectedAcademy } from '@/lib/academy';
 import { config } from '@/lib/config';
+import { getNotificationInbox, syncNotificationInbox } from '@/lib/notification-inbox';
+import { registerCurrentDeviceForPush } from '@/lib/push-notifications';
 import { getSession, logoutSession } from '@/lib/session';
 
 type DashboardCard = {
@@ -60,6 +62,7 @@ function resolveAvatarUri(avatarKey?: string | null) {
 const dashboardCards: DashboardCard[] = [
   { label: 'PLAY', source: require('@/assets/dashboard/play-card-mobile-v1.jpg') },
   { label: 'LEARN', source: require('@/assets/dashboard/learn-card-mobile-v1.jpg') },
+  { label: 'MY DATABASE', source: require('@/assets/academy/database-card-mobile-v1.jpg') },
   { label: 'SHOP', source: require('@/assets/dashboard/shop-card-mobile-v1.jpg') },
   { label: 'MY ACADEMY', source: require('@/assets/dashboard/academy-card-mobile-v1.jpg') },
 ];
@@ -80,6 +83,23 @@ export default function HomeScreen() {
   const [commanderName, setCommanderName] = useState(displayName);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [showMyAcademy, setShowMyAcademy] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    async function loadUnreadCount() {
+      const local = await getNotificationInbox();
+      if (active) setUnreadCount(local.filter((item) => !item.readAt).length);
+      const session = await getSession();
+      if (!session) return;
+      const synced = await syncNotificationInbox(session.accessToken).catch(() => null);
+      if (active && synced) setUnreadCount(synced.unreadCount);
+    }
+    void loadUnreadCount();
+    return () => {
+      active = false;
+    };
+  }, []));
 
   useEffect(() => {
     let active = true;
@@ -88,6 +108,7 @@ export default function HomeScreen() {
       try {
         const session = await getSession();
         if (!session) return;
+        void registerCurrentDeviceForPush(session.accessToken).catch(() => undefined);
         const me = await getJson<MeView>('/api/v1/global/me', session.accessToken);
         if (!active) return;
         if (me.displayName?.trim()) setCommanderName(me.displayName.trim());
@@ -130,11 +151,19 @@ export default function HomeScreen() {
       router.push('/academy' as Href);
       return;
     }
+    if (label === 'MY DATABASE') {
+      router.push('/my-database' as Href);
+      return;
+    }
     Alert.alert(label, `${label} is the next ChessPerfect mobile experience we will build.`);
   }
 
   function selectBottomDestination(label: string) {
     setActiveDestination(label);
+    if (label === 'INBOX') {
+      router.push('/inbox' as Href);
+      return;
+    }
     if (label !== 'HOME') {
       Alert.alert(label, `${label} is coming in the next ChessPerfect mobile milestone.`);
     }
@@ -265,6 +294,11 @@ export default function HomeScreen() {
                   style={[styles.bottomLabel, active && styles.bottomLabelActive]}>
                   {destination.label}
                 </Text>
+                {destination.label === 'INBOX' && unreadCount > 0 ? (
+                  <View style={styles.unreadBadge}>
+                    <Text style={styles.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                  </View>
+                ) : null}
                 {active && <View style={styles.activeIndicator} />}
               </Pressable>
             );
@@ -378,6 +412,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
+  unreadBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.terracotta,
+    borderColor: colors.goldLight,
+    borderRadius: 9,
+    borderWidth: 1,
+    minWidth: 18,
+    paddingHorizontal: 4,
+    position: 'absolute',
+    right: 12,
+    top: 2,
+  },
+  unreadBadgeText: { color: colors.white, fontSize: 9, fontWeight: '900' },
   coin: {
     alignItems: 'center',
     backgroundColor: '#e8b941',

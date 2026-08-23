@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ApiError, getJson, getJsonFromOrigin, postAuthorizedJsonFromOrigin } from '@/lib/api';
 import { activateAcademySession, clearAcademySession, getAcademyAccessSession } from '@/lib/academy-session';
+import { config } from '@/lib/config';
 import { restoreSession } from '@/lib/session';
 
 const selectedAcademyKey = 'chessperfect.selectedAcademy';
@@ -17,7 +18,7 @@ export type SelectedAcademy = {
   academyName: string;
   host: string;
   membershipCount: number;
-  role: 'COACH' | 'STUDENT';
+  role: 'ADMIN' | 'COACH' | 'OWNER' | 'STUDENT';
   tenantId: number;
 };
 
@@ -74,6 +75,52 @@ export type UpcomingClass = {
   timezone?: string | null;
 };
 
+export type StudentAttendanceSession = {
+  activeSeconds: number;
+  awaySeconds: number;
+  endTime?: string | null;
+  joinedAt?: string | null;
+  present: boolean;
+  sessionDate: string;
+  sessionId: number;
+  startTime?: string | null;
+  status: string;
+};
+
+export type StudentAttendanceRow = {
+  absentCount: number;
+  attendancePercent: number;
+  batchId?: number | null;
+  batchName?: string | null;
+  lastPresentAt?: string | null;
+  presentCount: number;
+  sessions: StudentAttendanceSession[];
+  sessionsHeld: number;
+  studentId: number;
+  studentName: string;
+  studentUserId: number;
+};
+
+export type StudentAttendanceReport = {
+  averageAttendancePercent: number;
+  from: string;
+  students: StudentAttendanceRow[];
+  to: string;
+  totalSessions: number;
+  totalStudents: number;
+};
+
+export type StudentLeaveRequest = {
+  createdAt: string;
+  fromDate: string;
+  id: number;
+  reason: string;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+  status: 'APPROVED' | 'CANCELLED' | 'PENDING' | 'REJECTED';
+  toDate: string;
+};
+
 type MeView = {
   tenantMemberships?: AcademyMembership[] | null;
 };
@@ -97,8 +144,12 @@ function normalizeHost(host?: string | null) {
 }
 
 export function academyOrigin(host: string) {
-  const protocol = /^(localhost|127\.0\.0\.1)(?::|$)/i.test(host) ? 'http' : 'https';
-  return `${protocol}://${host}`;
+	const isLocalHost = /^(?:[a-z0-9-]+\.)*localhost(?::\d+)?$|^127\.0\.0\.1(?::\d+)?$/i.test(host);
+	if (!isLocalHost) return `https://${host}`;
+
+	const configuredPort = new URL(config.apiBaseUrl).port;
+	const port = host.includes(':') || !configuredPort ? '' : `:${configuredPort}`;
+	return `http://${host}${port}`;
 }
 
 export async function fetchMobileAcademies() {
@@ -106,7 +157,7 @@ export async function fetchMobileAcademies() {
   if (!session) throw new ApiError('Please sign in again.', 401);
   const me = await getJson<MeView>('/api/v1/global/me', session.accessToken);
   return (me.tenantMemberships ?? [])
-    .filter((membership) => ['COACH', 'STUDENT'].includes(membership.role?.trim().toUpperCase() ?? ''))
+    .filter((membership) => ['ADMIN', 'COACH', 'OWNER', 'STUDENT'].includes(membership.role?.trim().toUpperCase() ?? ''))
     .map((membership) => ({
       ...membership,
       academyName: academyName(membership),
@@ -115,14 +166,14 @@ export async function fetchMobileAcademies() {
 
 export async function selectAcademy(membership: AcademyMembership, membershipCount: number) {
   const role = membership.role?.trim().toUpperCase();
-  if (role !== 'COACH' && role !== 'STUDENT') {
+  if (!['ADMIN', 'COACH', 'OWNER', 'STUDENT'].includes(role ?? '')) {
     throw new ApiError('This academy role does not have a mobile dashboard yet.', 403);
   }
   const selected: SelectedAcademy = {
     academyName: academyName(membership),
     host: normalizeHost(membership.host),
     membershipCount,
-    role,
+    role: role as SelectedAcademy['role'],
     tenantId: membership.tenantId,
   };
   await activateAcademySession(selected.tenantId, academyOrigin(selected.host));
@@ -146,7 +197,9 @@ export async function getSelectedAcademy(): Promise<SelectedAcademy | null> {
       academyName: parsed.academyName,
       host: normalizeHost(parsed.host),
       membershipCount: typeof parsed.membershipCount === 'number' ? parsed.membershipCount : 1,
-      role: parsed.role === 'COACH' ? 'COACH' : 'STUDENT',
+      role: ['ADMIN', 'COACH', 'OWNER', 'STUDENT'].includes(parsed.role ?? '')
+        ? parsed.role as SelectedAcademy['role']
+        : 'STUDENT',
       tenantId: parsed.tenantId,
     };
   } catch {
@@ -164,6 +217,40 @@ export async function fetchUpcomingClass(academy: SelectedAcademy) {
   return getJsonFromOrigin<UpcomingClass>(
     '/api/v1/student/dashboard/upcoming-class',
     origin,
+    session.accessToken,
+  );
+}
+
+export async function fetchMyAttendance(academy: SelectedAcademy, from: string, to: string) {
+  const origin = academyOrigin(normalizeHost(academy.host));
+  const session = await getAcademyAccessSession(academy.tenantId, origin);
+  return getJsonFromOrigin<StudentAttendanceReport>(
+    `/api/v1/academy/me/student/attendance?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    origin,
+    session.accessToken,
+  );
+}
+
+export async function fetchMyLeaveRequests(academy: SelectedAcademy) {
+  const origin = academyOrigin(normalizeHost(academy.host));
+  const session = await getAcademyAccessSession(academy.tenantId, origin);
+  return getJsonFromOrigin<StudentLeaveRequest[]>(
+    '/api/v1/academy/me/student/leave-requests',
+    origin,
+    session.accessToken,
+  );
+}
+
+export async function applyForLeave(
+  academy: SelectedAcademy,
+  request: { fromDate: string; reason: string; toDate: string },
+) {
+  const origin = academyOrigin(normalizeHost(academy.host));
+  const session = await getAcademyAccessSession(academy.tenantId, origin);
+  return postAuthorizedJsonFromOrigin<StudentLeaveRequest>(
+    '/api/v1/academy/me/student/leave-requests',
+    origin,
+    request,
     session.accessToken,
   );
 }

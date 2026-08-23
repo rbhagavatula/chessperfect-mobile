@@ -23,9 +23,10 @@ export default function AcademySelectionScreen() {
     setError(null);
     try {
       await selectAcademy(membership, count);
-      router.replace(membership.role?.trim().toUpperCase() === 'COACH'
-        ? '/academy/coach-dashboard'
-        : '/academy/student-dashboard');
+      const role = membership.role?.trim().toUpperCase();
+      router.replace(role === 'OWNER' || role === 'ADMIN'
+        ? '/academy/owner-dashboard'
+        : role === 'COACH' ? '/academy/coach-dashboard' : '/academy/student-dashboard');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to open this academy.');
       setOpeningTenantId(null);
@@ -87,7 +88,7 @@ export default function AcademySelectionScreen() {
                 tintColor={colors.goldLight}
               />
               <Text style={styles.stateTitle}>No mobile academy found</Text>
-              <Text style={styles.stateCopy}>Your account does not have an active student or coach membership.</Text>
+              <Text style={styles.stateCopy}>Your account does not have an active academy membership.</Text>
             </View>
           ) : (
             <>

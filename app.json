@@ -2,7 +2,8 @@
   "expo": {
     "name": "ChessPerfect",
     "slug": "prufer-logic",
-    "version": "1.0.1",
+    "version": "1.1.0",
+    "description": "Play chess, analyse games, improve with your academy, and stay connected through ChessPerfect.",
     "orientation": "portrait",
     "icon": "./assets/images/chessperfect-app-icon.png",
     "scheme": "chessperfect",
@@ -22,6 +23,7 @@
     },
     "android": {
       "package": "com.chessperfect.mobile",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
@@ -50,6 +52,13 @@
       "expo-secure-store",
       "expo-image",
       "expo-video",
+      [
+        "expo-notifications",
+        {
+          "color": "#d7a33b",
+          "defaultChannel": "general"
+        }
+      ],
       "expo-iap"
     ],
     "experiments": {

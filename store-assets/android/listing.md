@@ -66,3 +66,10 @@ Welcome to ChessPerfect for Android.
 - Fixed Single Study puzzle pushes from coach devices.
 - Coaches now see the active puzzle immediately after pushing it.
 - Student devices now show standard-position interactive puzzles reliably.
+
+## Release 1.1.0 notes
+
+- Added My Database, automatic online-game saving, opening classification and detailed game review.
+- Added attendance, leave requests, academy messaging and mobile-app adoption reporting.
+- Added push notifications, a persistent inbox, unread state and swipe-to-delete.
+- Fixed threefold-repetition draws across bot, multiplayer and tournament games.

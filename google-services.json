@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "413834093693",
+    "project_id": "chessperfect",
+    "storage_bucket": "chessperfect.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:413834093693:android:0abd6f0ff93c449415bd14",
+        "android_client_info": {
+          "package_name": "com.chessperfect.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApQNuKVyVIjQRELy1yvw7UskPlW24tr_A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:413834093693:android:12c7cb1634732a6115bd14",
+        "android_client_info": {
+          "package_name": "com.chessperfect.mobile.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApQNuKVyVIjQRELy1yvw7UskPlW24tr_A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

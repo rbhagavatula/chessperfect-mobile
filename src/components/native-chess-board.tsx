@@ -90,7 +90,9 @@ export function NativeChessBoard({
           {displayedFiles.map((file, columnIndex) => {
             const square = `${file}${rank}`;
             const piece = getPiece(square);
-            const isLight = (files.indexOf(file) + rank) % 2 === 1;
+            // Chessboard colors belong to the square itself, independent of
+            // display orientation: a1 and h8 are always dark.
+            const isLight = (files.indexOf(file) + rank) % 2 === 0;
             const isSelected = selectedSquare === square;
             const isTarget = legalTargets.includes(square);
             const isLastMove = lastMove?.from === square || lastMove?.to === square;

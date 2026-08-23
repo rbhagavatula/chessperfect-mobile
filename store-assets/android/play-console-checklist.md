@@ -3,10 +3,10 @@
 ## Completed in the repository
 
 - [x] Package name is `com.chessperfect.mobile`.
-- [x] App version is `1.0.0`; first Android version code is configured.
+- [x] App version is `1.1.0`; Android version codes are remotely managed and auto-incremented by EAS.
 - [x] Target and compile SDK are API 36.
 - [x] Production builds use Android App Bundle through EAS.
-- [x] Production submission defaults to a **draft Internal testing** release.
+- [x] Production submission defaults to a **draft Internal testing** release so promotion remains a deliberate Play Console action.
 - [x] Camera and microphone permission explanations are configured.
 - [x] In-app Privacy Policy, Terms of Service and account-deletion entry points exist.
 - [x] External account-deletion page is `/account-deletion`.

@@ -6,6 +6,7 @@ import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -36,6 +37,11 @@ import {
 import { colors } from '@/constants/colors';
 import { loadChessPreferences, saveChessPreferences } from '@/lib/chess-preferences';
 import {
+  fetchMyDatabaseGameReview,
+  queueMyDatabaseGameReview,
+  type MyDatabaseGameReview,
+} from '@/lib/my-database';
+import {
   analyzePosition,
   type PositionAnalysis,
   type PositionAnalysisLine,
@@ -51,8 +57,6 @@ type NotationMoveTarget =
 type LoadFormat = 'fen' | 'pgn';
 
 const startFen = new Chess().fen();
-const ENGINE_LINE_HEIGHT = 38;
-
 function validFen(value?: string) {
   if (!value?.trim()) return null;
   try {
@@ -86,27 +90,46 @@ function principalVariationSan(fen: string, principalVariation?: string | null) 
   }).join(' ');
 }
 
-function evaluationSymbol(analysis: PositionAnalysisLine | null) {
-  if (!analysis) return '=';
-  if (analysis.mate !== null && analysis.mate !== undefined) {
-    if (analysis.mate === 0) return '#';
-    return analysis.mate > 0 ? '+−' : '−+';
+function evaluationVerdict(centipawns?: number | null, mate?: number | null) {
+  if (mate !== null && mate !== undefined) {
+    return {
+      symbol: mate > 0 ? '+-' : '-+',
+      text: mate > 0 ? 'White has a forced mate' : 'Black has a forced mate',
+    };
   }
-  const pawns = (analysis.centipawns ?? 0) / 100;
-  if (pawns >= 1.5) return '+−';
-  if (pawns >= 0.5) return '+/=';
-  if (pawns <= -1.5) return '−+';
-  if (pawns <= -0.5) return '=/+';
-  return '=';
+  const value = centipawns ?? 0;
+  const absolute = Math.abs(value);
+  if (absolute < 25) return { symbol: '=', text: 'The position is equal' };
+  const side = value > 0 ? 'White' : 'Black';
+  if (absolute < 75) return { symbol: value > 0 ? '+/=' : '=/+', text: `${side} is slightly better` };
+  if (absolute < 150) return { symbol: value > 0 ? '+=' : '=+', text: `${side} is clearly better` };
+  if (absolute < 300) return { symbol: value > 0 ? '+/-' : '-/+', text: `${side} has a decisive advantage` };
+  return { symbol: value > 0 ? '+-' : '-+', text: `${side} is winning` };
+}
+
+function evaluationSymbol(analysis: PositionAnalysisLine | null) {
+  return evaluationVerdict(analysis?.centipawns, analysis?.mate).symbol;
 }
 
 function evaluationScore(analysis: PositionAnalysisLine | null) {
   if (!analysis) return '—';
   if (analysis.mate !== null && analysis.mate !== undefined) {
-    return analysis.mate === 0 ? '#' : `#${analysis.mate}`;
+    return analysis.mate > 0 ? `M${analysis.mate}` : `-M${Math.abs(analysis.mate)}`;
   }
   const pawns = (analysis.centipawns ?? 0) / 100;
-  return `${pawns >= 0 ? '' : '−'}${Math.abs(pawns).toFixed(2)}`;
+  return `${pawns > 0 ? '+' : pawns < 0 ? '-' : ''}${Math.abs(pawns).toFixed(2)}`;
+}
+
+function formattedEvaluation(centipawns?: number | null, mate?: number | null) {
+  const line: PositionAnalysisLine = { centipawns, mate };
+  return `${evaluationScore(line)} ${evaluationVerdict(centipawns, mate).symbol}`;
+}
+
+function evaluationWhitePercent(centipawns?: number | null, mate?: number | null) {
+  if (mate !== null && mate !== undefined) return mate > 0 ? 96 : 4;
+  const value = centipawns ?? 0;
+  const normalized = 50 + (Math.atan(value / 400) / (Math.PI / 2)) * 46;
+  return Math.max(4, Math.min(96, normalized));
 }
 
 function movePrefix(rootFen: string, relativePly: number, forceBlackPrefix = false) {
@@ -146,6 +169,26 @@ function pgnMovetext(pgn: string) {
   return pgn.replace(/^\s*\[[^\]]*\]\s*$/gm, '').replace(/\s+/g, ' ').trim();
 }
 
+function timelineFromPgn(pgn?: string) {
+  if (!pgn?.trim()) return null;
+  try {
+    const pgnGame = new Chess();
+    pgnGame.loadPgn(pgn.trim());
+    const moves = pgnGame.history({ verbose: true });
+    const firstFen = moves[0]?.before ?? pgnGame.fen();
+    return [
+      { fen: firstFen, san: null, uci: null },
+      ...moves.map((move) => ({
+        fen: move.after,
+        san: move.san,
+        uci: `${move.from}${move.to}${move.promotion ?? ''}`,
+      })),
+    ] satisfies TimelinePosition[];
+  } catch {
+    return null;
+  }
+}
+
 function exportPgn(timeline: TimelinePosition[], variations: VariationLine[], importedPgn: string | null) {
   if (importedPgn) return importedPgn.trim();
   const rootFen = timeline[0]?.fen ?? startFen;
@@ -160,18 +203,25 @@ function exportPgn(timeline: TimelinePosition[], variations: VariationLine[], im
 }
 
 export default function AnalysisBoardScreen() {
-  const params = useLocalSearchParams<{ fen?: string }>();
+  const params = useLocalSearchParams<{ fen?: string; gameId?: string; pgn?: string }>();
   const routeFen = validFen(typeof params.fen === 'string' ? params.fen : undefined);
+  const routePgn = typeof params.pgn === 'string' ? params.pgn : undefined;
+  const routeGameId = typeof params.gameId === 'string' && /^\d+$/.test(params.gameId)
+    ? Number.parseInt(params.gameId, 10)
+    : null;
   const { width } = useWindowDimensions();
-  const boardSize = Math.min(width - 24, 520);
+  const boardAreaWidth = Math.min(width - 24, 520);
+  const boardSize = boardAreaWidth - 44;
   const initialFen = routeFen ?? startFen;
-  const [timeline, setTimeline] = useState<TimelinePosition[]>([
-    { fen: initialFen, san: null, uci: null },
-  ]);
+  const routeTimeline = timelineFromPgn(routePgn);
+  const initialTimeline = routeTimeline ?? [{ fen: initialFen, san: null, uci: null }];
+  const [timeline, setTimeline] = useState<TimelinePosition[]>(initialTimeline);
   const [variations, setVariations] = useState<VariationLine[]>([]);
-  const [importedPgn, setImportedPgn] = useState<string | null>(null);
-  const [cursor, setCursor] = useState(0);
-  const [notationSelection, setNotationSelection] = useState<NotationMoveTarget | null>(null);
+  const [importedPgn, setImportedPgn] = useState<string | null>(routeTimeline && routePgn ? routePgn : null);
+  const [cursor, setCursor] = useState(initialTimeline.length - 1);
+  const [notationSelection, setNotationSelection] = useState<NotationMoveTarget | null>(initialTimeline.length > 1
+    ? { branch: 'main', positionIndex: initialTimeline.length - 1 }
+    : null);
   const [moveMenuTarget, setMoveMenuTarget] = useState<NotationMoveTarget | null>(null);
   const [selected, setSelected] = useState<Square | null>(null);
   const [legalTargets, setLegalTargets] = useState<Square[]>([]);
@@ -191,9 +241,13 @@ export default function AnalysisBoardScreen() {
   const [analysisFen, setAnalysisFen] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [engineEnabled, setEngineEnabled] = useState(false);
+  const [engineEnabled, setEngineEnabled] = useState(true);
   const [engineLineCount, setEngineLineCount] = useState(3);
   const [engineDepth, setEngineDepth] = useState(14);
+  const [gameReview, setGameReview] = useState<MyDatabaseGameReview | null>(null);
+  const [gameReviewError, setGameReviewError] = useState<string | null>(null);
+  const [gameReviewBusy, setGameReviewBusy] = useState(false);
+  const [gameReviewRefreshKey, setGameReviewRefreshKey] = useState(0);
   const accessTokenRef = useRef<string | undefined>(undefined);
   const analysisSequenceRef = useRef(0);
 
@@ -219,6 +273,12 @@ export default function AnalysisBoardScreen() {
     })),
     [analysisFen, currentFen, engineLines],
   );
+  const selectedGameReviewMove = notationSelection?.branch === 'main' && cursor > 0
+    ? gameReview?.moves.find((move) => move.ply === cursor) ?? null
+    : null;
+  const currentEngineLine = analysisFen === currentFen ? engineLines[0] ?? null : null;
+  const currentEvaluationCp = currentEngineLine?.centipawns ?? selectedGameReviewMove?.evaluationAfterCp ?? null;
+  const currentEvaluationMate = currentEngineLine?.mate ?? selectedGameReviewMove?.mateAfter ?? null;
 
   useEffect(() => {
     let active = true;
@@ -235,6 +295,31 @@ export default function AnalysisBoardScreen() {
       analysisSequenceRef.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (routeGameId == null) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const loadReview = async () => {
+      try {
+        let review = await fetchMyDatabaseGameReview(routeGameId);
+        if (review.status === 'NOT_REQUESTED') review = await queueMyDatabaseGameReview(routeGameId);
+        if (!active) return;
+        setGameReview(review);
+        setGameReviewError(null);
+        if (review.status === 'QUEUED' || review.status === 'ANALYZING') {
+          timer = setTimeout(loadReview, 1500);
+        }
+      } catch (caught: unknown) {
+        if (active) setGameReviewError(caught instanceof Error ? caught.message : 'The game review could not be loaded.');
+      }
+    };
+    void loadReview();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [gameReviewRefreshKey, routeGameId]);
 
   useEffect(() => {
     if (!engineEnabled) return;
@@ -538,6 +623,31 @@ export default function AnalysisBoardScreen() {
     });
   }
 
+  async function retryGameReview() {
+    if (routeGameId == null || gameReviewBusy) return;
+    try {
+      setGameReviewBusy(true);
+      setGameReviewError(null);
+      setGameReview(await queueMyDatabaseGameReview(routeGameId));
+      setGameReviewRefreshKey((value) => value + 1);
+    } catch (caught: unknown) {
+      setGameReviewError(caught instanceof Error ? caught.message : 'The game review could not be started.');
+    } finally {
+      setGameReviewBusy(false);
+    }
+  }
+
+  function confirmRerunGameReview() {
+    Alert.alert(
+      'Rerun game analysis?',
+      'The saved review will be replaced when the new analysis finishes.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Rerun', onPress: () => void retryGameReview() },
+      ],
+    );
+  }
+
   return (
     <LinearGradient colors={['#06111c', '#160f0b', '#05090d']} style={styles.background}>
       <CivBackdrop />
@@ -550,17 +660,20 @@ export default function AnalysisBoardScreen() {
             <ToolbarButton icon={{ android: 'restart_alt', ios: 'arrow.counterclockwise', web: 'restart_alt' }} label="Reset" onPress={resetBoard} />
           </View>
 
-          <NativeChessBoard
-            boardTheme={boardTheme}
-            getPiece={(square) => game.get(square as Square)}
-            lastMove={lastMove}
-            legalTargets={legalTargets}
-            onSquarePress={(square) => selectSquare(square as Square)}
-            orientation={orientation}
-            pieceTheme={pieceTheme}
-            selectedSquare={selected}
-            size={boardSize}
-          />
+          <View style={[styles.boardWithEvaluation, { width: boardAreaWidth }]}>
+            <EvaluationBar centipawns={currentEvaluationCp} mate={currentEvaluationMate} />
+            <NativeChessBoard
+              boardTheme={boardTheme}
+              getPiece={(square) => game.get(square as Square)}
+              lastMove={lastMove}
+              legalTargets={legalTargets}
+              onSquarePress={(square) => selectSquare(square as Square)}
+              orientation={orientation}
+              pieceTheme={pieceTheme}
+              selectedSquare={selected}
+              size={boardSize}
+            />
+          </View>
 
           <View style={styles.navigationRow}>
             <NavButton disabled={cursor === 0} icon={{ android: 'first_page', ios: 'backward.end.fill', web: 'first_page' }} label="Start" onPress={() => moveCursor(0)} />
@@ -606,7 +719,7 @@ export default function AnalysisBoardScreen() {
             </View>
 
             {engineEnabled ? (
-              <View style={[styles.engineResults, { height: ENGINE_LINE_HEIGHT * engineLineCount }]}>
+              <View style={styles.engineResults}>
                 {displayedEngineLines.length === 0 ? (
                   <Text numberOfLines={1} style={styles.engineStatus}>
                     {analyzing ? 'Calculating…' : 'Waiting for analysis…'}
@@ -614,17 +727,112 @@ export default function AnalysisBoardScreen() {
                 ) : null}
                 {displayedEngineLines.map((line, index) => (
                   <View key={`${line.bestMove ?? 'line'}-${index}`} style={styles.engineLineRow}>
-                    <Text style={styles.engineAssessment}>{evaluationSymbol(line)}</Text>
-                    <Text style={styles.engineScore}>{evaluationScore(line)}</Text>
-                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.engineLine}>
-                      {line.san || 'No principal variation available.'}
+                    <View style={styles.engineLineHeader}>
+                      <Text style={styles.engineLineLabel}>{index === 0 ? 'MAIN LINE' : `ALTERNATIVE ${index}`}</Text>
+                    </View>
+                    <Text style={styles.engineLine}>
+                      {line.san || 'No principal variation available.'}{' '}
+                      <Text style={styles.engineLineEvaluation}>{evaluationScore(line)} {evaluationSymbol(line)}</Text>
                     </Text>
+                    <Text style={styles.engineVerdict}>{evaluationVerdict(line.centipawns, line.mate).text}</Text>
                   </View>
                 ))}
                 {analysisError ? <Text numberOfLines={2} style={styles.error}>{analysisError}</Text> : null}
               </View>
             ) : null}
           </View>
+
+          {routeGameId != null ? (
+            <LinearGradient colors={['rgba(22, 49, 58, 0.98)', 'rgba(10, 16, 20, 0.99)']} style={styles.reviewPanel}>
+              <Text style={styles.sectionLabel}>COMPLETE GAME REVIEW</Text>
+              {gameReview?.status === 'COMPLETED' ? (
+                selectedGameReviewMove ? (
+                  <View>
+                    <View style={styles.reviewActionRow}>
+                      <Pressable disabled={gameReviewBusy} onPress={confirmRerunGameReview} style={styles.reviewRetry}>
+                        <Text style={styles.reviewRetryText}>{gameReviewBusy ? 'Starting…' : 'Rerun analysis'}</Text>
+                      </Pressable>
+                    </View>
+                    <View style={styles.reviewHeadingRow}>
+                      <View style={styles.reviewBadge}>
+                        <Text style={styles.reviewBadgeSymbol}>{selectedGameReviewMove.symbol}</Text>
+                        <Text style={styles.reviewBadgeText}>{selectedGameReviewMove.classification}</Text>
+                      </View>
+                      <Text style={styles.reviewEval}>
+                        Eval {formattedEvaluation(selectedGameReviewMove.evaluationAfterCp, selectedGameReviewMove.mateAfter)} · loss {((selectedGameReviewMove.centipawnLoss ?? 0) / 100).toFixed(1)}
+                      </Text>
+                    </View>
+                    <Text style={styles.reviewCommentary}>{selectedGameReviewMove.commentary}</Text>
+                    {(selectedGameReviewMove.candidateLines?.length
+                      ? selectedGameReviewMove.candidateLines
+                      : selectedGameReviewMove.principalVariationSan
+                        ? [{
+                            rank: 1,
+                            principalVariationSan: selectedGameReviewMove.principalVariationSan,
+                            evaluationCp: selectedGameReviewMove.evaluationBeforeCp,
+                            mate: selectedGameReviewMove.mateBefore,
+                            evaluationText: evaluationVerdict(
+                              selectedGameReviewMove.evaluationBeforeCp,
+                              selectedGameReviewMove.mateBefore,
+                            ).text,
+                          }]
+                        : []).map((line) => (
+                      <View key={`review-line-${line.rank}`} style={styles.reviewVariation}>
+                        <View style={styles.reviewVariationHeader}>
+                          <Text style={styles.reviewVariationLabel}>
+                            {line.rank === 1 ? 'MAIN ENGINE LINE' : `ALTERNATIVE IDEA ${line.rank - 1}`}
+                          </Text>
+                        </View>
+                        <Text style={styles.reviewVariationText}>
+                          {line.principalVariationSan || 'No continuation available.'}{' '}
+                          <Text style={styles.reviewLineEvaluation}>
+                            {formattedEvaluation(line.evaluationCp, line.mate)}
+                          </Text>
+                        </Text>
+                        <Text style={styles.reviewLineVerdict}>
+                          {line.evaluationText || evaluationVerdict(line.evaluationCp, line.mate).text}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View>
+                    <View style={styles.reviewActionRow}>
+                      <Pressable disabled={gameReviewBusy} onPress={confirmRerunGameReview} style={styles.reviewRetry}>
+                        <Text style={styles.reviewRetryText}>{gameReviewBusy ? 'Starting…' : 'Rerun analysis'}</Text>
+                      </Pressable>
+                    </View>
+                    <View style={styles.reviewHeadingRow}>
+                      <Text style={styles.reviewComplete}>REVIEW COMPLETE</Text>
+                      <Text style={styles.reviewEval}>
+                        White {gameReview.white.accuracy?.toFixed(1) ?? '—'}% · Black {gameReview.black.accuracy?.toFixed(1) ?? '—'}%
+                      </Text>
+                    </View>
+                    <Text style={styles.reviewCommentary}>{gameReview.summaryCommentary}</Text>
+                  </View>
+                )
+              ) : (
+                <View style={styles.reviewLoadingRow}>
+                  <View style={styles.reviewLoadingCopy}>
+                    <Text style={styles.reviewComplete}>
+                      {gameReview?.status === 'FAILED' ? 'REVIEW NEEDS ANOTHER TRY' : 'ANALYZING EVERY MOVE'}
+                    </Text>
+                    <Text style={styles.reviewMuted}>
+                      {gameReview?.status === 'FAILED'
+                        ? 'The chess engine is currently unavailable.'
+                        : 'Adding explanations, variations, and move symbols.'}
+                    </Text>
+                    {gameReviewError ? <Text style={styles.error}>{gameReviewError}</Text> : null}
+                  </View>
+                  {gameReview?.status === 'FAILED' ? (
+                    <Pressable disabled={gameReviewBusy} onPress={retryGameReview} style={styles.reviewRetry}>
+                      <Text style={styles.reviewRetryText}>{gameReviewBusy ? 'Starting…' : 'Retry'}</Text>
+                    </Pressable>
+                  ) : <ActivityIndicator color={colors.goldLight} size="small" />}
+                </View>
+              )}
+            </LinearGradient>
+          ) : null}
 
           <LinearGradient colors={['rgba(58, 39, 24, 0.98)', 'rgba(14, 10, 8, 0.99)']} style={styles.panel}>
             <RoyalCorners />
@@ -641,7 +849,7 @@ export default function AnalysisBoardScreen() {
                   return (
                     <View key={`main-${index}-${position.uci}`} style={styles.notationCluster}>
                       <NotationMoveButton
-                        label={`${movePrefix(timeline[0].fen, index)}${position.san ?? ''}`}
+                        label={`${movePrefix(timeline[0].fen, index)}${position.san ?? ''}${gameReview?.moves[index]?.symbol ? ` ${gameReview.moves[index].symbol}` : ''}`}
                         onLongPress={() => openMoveMenu(mainTarget)}
                         onPress={() => selectNotationMove(mainTarget)}
                         selected={mainSelected}
@@ -969,11 +1177,31 @@ function NavButton({ disabled, icon, label, onPress }: { disabled: boolean; icon
   );
 }
 
+function EvaluationBar({ centipawns, mate }: { centipawns?: number | null; mate?: number | null }) {
+  const whitePercent = evaluationWhitePercent(centipawns, mate);
+  const label = formattedEvaluation(centipawns, mate);
+  return (
+    <View accessibilityLabel={`White-perspective evaluation ${label}`} style={styles.evaluationBarFrame}>
+      <View style={styles.evaluationBarTrack}>
+        <View style={[styles.evaluationBarWhite, { height: `${whitePercent}%` }]} />
+        <Text adjustsFontSizeToFit numberOfLines={1} style={styles.evaluationBarScore}>{evaluationScore({ centipawns, mate })}</Text>
+        <Text adjustsFontSizeToFit numberOfLines={1} style={styles.evaluationBarSymbol}>{evaluationVerdict(centipawns, mate).symbol}</Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   background: { flex: 1 },
   safeArea: { flex: 1 },
   content: { alignItems: 'center', paddingBottom: 28, paddingHorizontal: 12, paddingTop: 10 },
   boardToolbar: { flexDirection: 'row', gap: 7, justifyContent: 'center', marginBottom: 8, maxWidth: 520, width: '100%' },
+  boardWithEvaluation: { alignItems: 'stretch', flexDirection: 'row', gap: 4, justifyContent: 'center' },
+  evaluationBarFrame: { backgroundColor: 'rgba(255,255,255,0.15)', borderColor: colors.border, borderRadius: 7, borderWidth: 1, padding: 2, width: 40 },
+  evaluationBarTrack: { backgroundColor: '#101216', borderRadius: 4, flex: 1, minHeight: 220, overflow: 'hidden', position: 'relative' },
+  evaluationBarWhite: { backgroundColor: '#f8f5eb', bottom: 0, left: 0, position: 'absolute', right: 0 },
+  evaluationBarScore: { backgroundColor: 'rgba(3,7,12,0.88)', color: '#fff', fontFamily: 'monospace', fontSize: 8, fontWeight: '900', left: 1, paddingVertical: 3, position: 'absolute', right: 1, textAlign: 'center', top: 2 },
+  evaluationBarSymbol: { backgroundColor: 'rgba(255,255,255,0.9)', bottom: 2, color: '#101216', fontFamily: 'serif', fontSize: 9, fontWeight: '900', left: 1, paddingVertical: 3, position: 'absolute', right: 1, textAlign: 'center' },
   toolbarButton: { alignItems: 'center', backgroundColor: 'rgba(8, 15, 21, 0.94)', borderColor: colors.border, borderRadius: 9, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 38 },
   toolbarButtonWide: { flex: 1.65 },
   toolbarLabel: { color: colors.sandstone, fontSize: 10, fontWeight: '800' },
@@ -985,6 +1213,26 @@ const styles = StyleSheet.create({
   engineSection: { marginTop: 10, maxWidth: 520, width: '100%' },
   engineControls: { alignItems: 'center', borderBottomColor: colors.goldDark, borderBottomWidth: 1, flexDirection: 'row', gap: 6, justifyContent: 'space-between', paddingBottom: 7 },
   panel: { borderColor: colors.goldDark, borderRadius: 14, borderWidth: 1, marginTop: 12, maxWidth: 520, overflow: 'hidden', padding: 15, width: '100%' },
+  reviewPanel: { borderColor: 'rgba(115, 220, 224, 0.45)', borderRadius: 14, borderWidth: 1, marginTop: 12, maxWidth: 520, overflow: 'hidden', padding: 15, width: '100%' },
+  reviewActionRow: { alignItems: 'flex-end', marginTop: 8 },
+  reviewHeadingRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', marginTop: 9 },
+  reviewBadge: { alignItems: 'center', backgroundColor: 'rgba(72, 201, 176, 0.13)', borderColor: 'rgba(115, 220, 224, 0.55)', borderRadius: 20, borderWidth: 1, flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 5 },
+  reviewBadgeSymbol: { color: '#9ff5ef', fontFamily: 'serif', fontSize: 16, fontWeight: '900' },
+  reviewBadgeText: { color: '#d7fffb', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  reviewComplete: { color: '#9ff5ef', fontSize: 10, fontWeight: '900', letterSpacing: 0.9 },
+  reviewEval: { color: colors.sandstone, fontFamily: 'monospace', fontSize: 10, fontWeight: '700' },
+  reviewCommentary: { color: colors.cream, fontSize: 12, lineHeight: 19, marginTop: 10 },
+  reviewVariation: { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(115, 220, 224, 0.22)', borderRadius: 9, borderWidth: 1, marginTop: 10, padding: 10 },
+  reviewVariationHeader: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
+  reviewVariationLabel: { color: '#83dcd8', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
+  reviewVariationText: { color: colors.cream, fontFamily: 'monospace', fontSize: 10, lineHeight: 17, marginTop: 5 },
+  reviewLineEvaluation: { color: colors.goldLight, fontFamily: 'monospace', fontSize: 9, fontWeight: '900' },
+  reviewLineVerdict: { color: colors.sandstone, fontSize: 9, fontWeight: '700', marginTop: 4 },
+  reviewLoadingRow: { alignItems: 'center', flexDirection: 'row', gap: 12, justifyContent: 'space-between', marginTop: 9 },
+  reviewLoadingCopy: { flex: 1 },
+  reviewMuted: { color: colors.muted, fontSize: 10, lineHeight: 16, marginTop: 3 },
+  reviewRetry: { borderColor: 'rgba(115, 220, 224, 0.55)', borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
+  reviewRetryText: { color: '#d7fffb', fontSize: 11, fontWeight: '900' },
   engineToggleGroup: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 6 },
   engineLabel: { color: colors.goldLight, fontFamily: 'serif', fontSize: 16, fontWeight: '900' },
   compactSelector: { alignItems: 'center', backgroundColor: 'rgba(8, 15, 21, 0.94)', borderColor: colors.border, borderRadius: 8, borderWidth: 1, flexDirection: 'row', gap: 3, minHeight: 34, paddingHorizontal: 7 },
@@ -993,12 +1241,15 @@ const styles = StyleSheet.create({
   lineSelector: { alignItems: 'center', backgroundColor: 'rgba(8, 15, 21, 0.94)', borderColor: colors.border, borderRadius: 8, borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 36, paddingHorizontal: 10 },
   lineSelectorLabel: { color: colors.sandstone, fontSize: 10, fontWeight: '800' },
   lineSelectorValue: { color: colors.goldLight, fontFamily: 'serif', fontSize: 15, fontWeight: '900' },
-  engineStatus: { color: colors.muted, fontSize: 10, height: ENGINE_LINE_HEIGHT, lineHeight: ENGINE_LINE_HEIGHT, paddingHorizontal: 4 },
+  engineStatus: { color: colors.muted, fontSize: 10, lineHeight: 18, paddingHorizontal: 4, paddingVertical: 10 },
   engineResults: { overflow: 'hidden' },
-  engineLineRow: { alignItems: 'center', borderBottomColor: 'rgba(211, 165, 55, 0.22)', borderBottomWidth: 1, flexDirection: 'row', gap: 7, height: ENGINE_LINE_HEIGHT, paddingHorizontal: 3 },
-  engineAssessment: { color: colors.goldLight, fontFamily: 'serif', fontSize: 12, fontWeight: '900', width: 27 },
-  engineScore: { color: colors.sandstone, fontFamily: 'monospace', fontSize: 11, fontWeight: '800', width: 42 },
-  engineLine: { color: colors.cream, flex: 1, fontFamily: 'monospace', fontSize: 10, lineHeight: 16 },
+  engineLineRow: { borderBottomColor: 'rgba(211, 165, 55, 0.22)', borderBottomWidth: 1, paddingHorizontal: 4, paddingVertical: 8 },
+  engineLineHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  engineLineLabel: { color: colors.gold, fontSize: 8, fontWeight: '900', letterSpacing: 0.9 },
+  engineScore: { color: colors.sandstone, fontFamily: 'monospace', fontSize: 10, fontWeight: '800' },
+  engineLine: { color: colors.cream, fontFamily: 'monospace', fontSize: 10, lineHeight: 16, marginTop: 3 },
+  engineLineEvaluation: { color: colors.goldLight, fontWeight: '900' },
+  engineVerdict: { color: colors.muted, fontSize: 9, fontWeight: '700', marginTop: 2 },
   sectionLabel: { color: colors.gold, fontSize: 9, fontWeight: '900', letterSpacing: 1.1 },
   notation: { color: colors.cream, fontFamily: 'monospace', fontSize: 11, lineHeight: 18, marginTop: 7 },
   notationTable: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 3, marginTop: 7 },

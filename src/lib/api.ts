@@ -194,3 +194,37 @@ export async function getJsonFromOrigin<TResponse>(
 
   return payload as TResponse;
 }
+
+export async function deleteAuthorizedJson<TResponse>(
+  path: string,
+  accessToken: string,
+  timeoutMs = 15_000
+): Promise<TResponse> {
+  let response: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    response = await fetch(`${config.apiBaseUrl}${path}`, {
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal: controller.signal,
+    });
+  } catch (caught) {
+    if (caught instanceof Error && caught.name === 'AbortError') {
+      throw new ApiError('ChessPerfect took too long to respond. Please try again.', 0);
+    }
+    throw new ApiError('Unable to reach ChessPerfect. Check your connection and try again.', 0);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiError(errorMessage(payload, 'ChessPerfect could not complete this request.'), response.status);
+  }
+  return payload as TResponse;
+}
