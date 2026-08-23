@@ -1,8 +1,8 @@
-What’s new in ChessPerfect 1.1.0
+What's new in ChessPerfect 1.1.0
 
-- Added My Database with automatic game saving and opening classification.
-- Added detailed game review with evaluation, alternatives, and human-readable explanations.
-- Added student attendance, leave requests, and academy messaging.
-- Added persistent inbox messages, push notifications, unread indicators, and swipe-to-delete.
-- Added owner/admin messaging for students, batches, and whole-academy announcements.
-- Fixed threefold-repetition draws across bot, multiplayer, and tournament games.
+- My Database with automatic game saving and opening classification.
+- Game analysis with evaluations, alternatives and explanations.
+- Student attendance and leave requests.
+- Academy messaging, push notifications and persistent inbox.
+- Admin broadcasts for students, batches or the whole academy.
+- Correct threefold-repetition draws in bot, multiplayer and tournament games.
