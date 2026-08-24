@@ -11,7 +11,7 @@ This worksheet is an implementation inventory for the Play Console declaration. 
 | Phone number | Profile and academy administration | Optional | No | Not required for a free player account. |
 | User IDs / username | Authentication, game identity, academy activity | Required | No | Public username can appear in games and leaderboards. |
 | Address / location | Profile or academy billing administration | Optional | No | Only when supplied. |
-| Purchase history | Plans, fees, entitlements and reconciliation | Conditional | Google Play | Purchase tokens are verified server-side. Do not declare credit-card collection; Google handles payment credentials. |
+| Purchase history | Player plans, academy fees, entitlements and reconciliation | Conditional | Google Play for player plans; ChessPerfect backend for academy fee records | Player purchase tokens are verified server-side. Academy payment credentials are entered only on the hosted Razorpay checkout and are not collected by the native app. |
 | App interactions | Games, moves, puzzles, studies, attendance and feature activity | Required | No | Needed to deliver the chess and academy services. |
 | Other user-generated content | PGN/FEN, studies, chats/class activity where enabled | Conditional | Other class/game participants | Scope depends on the feature used. |
 | Diagnostics | Reliability, security and troubleshooting logs | Required | Hosting/service providers only | Confirm whether crash analytics SDKs are added before release. |

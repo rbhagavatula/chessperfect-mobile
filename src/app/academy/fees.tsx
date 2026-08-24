@@ -1,9 +1,11 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import * as WebBrowser from 'expo-web-browser';
 import { SymbolView } from 'expo-symbols';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,7 +20,9 @@ import { PlayScreenHeader } from '@/components/play-screen-header';
 import { colors } from '@/constants/colors';
 import {
   fetchStudentBillingCycles,
+  fetchStudentFeePaymentConfiguration,
   fetchStudentPaymentHistory,
+  createStudentFeeCheckout,
   getAcademyBillingContext,
   isPayableCycle,
   payableAmount,
@@ -27,12 +31,6 @@ import {
   type StudentBillingCycle,
   type StudentPayment,
 } from '@/lib/academy-billing';
-import {
-  createStudentGooglePlayCheckout,
-  fetchStudentGooglePlayFeeQuote,
-  useGooglePlayCheckout,
-  type GooglePlayFeeQuote,
-} from '@/lib/google-play-billing';
 
 type ViewMode = 'BILLING' | 'HISTORY';
 type HistoryFilter = 'ALL' | PaymentStatus;
@@ -52,8 +50,7 @@ const paymentErrors: Record<string, string> = {
   CYCLE_ALREADY_PAID: 'This fee has already been paid.',
   CYCLE_VOID: 'This fee is no longer payable.',
   PAYMENT_ALREADY_EXISTS_FOR_BILLING_CYCLE: 'A payment is already being processed.',
-  GOOGLE_PLAY_BILLING_DISABLED: 'Google Play Billing is not configured yet.',
-  GOOGLE_PLAY_PURCHASE_NOT_COMPLETED: 'Google Play has not completed this purchase.',
+  STUDENT_FEE_ONLINE_PAYMENTS_DISABLED: 'Online academy-fee payments are not available yet.',
   ZERO_FEE_MARKED_PAID: 'This no-fee cycle has been marked paid.',
 };
 
@@ -110,20 +107,18 @@ function AmountCell({ full, label, strong, value }: { full?: boolean; label: str
 function BillingCard({
   busy,
   cycle,
-  googlePlayAmount,
-  googlePlayDisplayPrice,
+  onlinePaymentsEnabled,
   onPay,
 }: {
   busy: boolean;
   cycle: StudentBillingCycle;
-  googlePlayAmount?: number;
-  googlePlayDisplayPrice?: string;
+  onlinePaymentsEnabled: boolean;
   onPay: (cycle: StudentBillingCycle) => void;
 }) {
   const payable = payableAmount(cycle);
-  const checkoutAmount = googlePlayAmount ?? payable;
   const status = displayCycleStatus(cycle);
-  const canPay = isPayableCycle(cycle);
+  const isPayable = isPayableCycle(cycle);
+  const canPay = isPayable && onlinePaymentsEnabled;
 
   return (
     <View style={styles.cycleCard}>
@@ -137,8 +132,8 @@ function BillingCard({
       </View>
 
       <View style={styles.amountGrid}>
-        {canPay ? (
-          <AmountCell full label="ANDROID APP TOTAL" strong value={googlePlayDisplayPrice || checkoutAmount} />
+        {isPayable ? (
+          <AmountCell full label="ACADEMY FEE TOTAL" strong value={payable} />
         ) : (
           <>
             <AmountCell label="BASE FEE" value={cycle.baseFeeAmountInr} />
@@ -149,14 +144,16 @@ function BillingCard({
         )}
       </View>
 
-      {canPay ? (
+      {isPayable ? (
         <Pressable
-          accessibilityLabel={`Pay ${formatInr(checkoutAmount)} for ${monthLabel(cycle.periodStart, cycle.periodEnd)}`}
-          disabled={busy}
+          accessibilityLabel={onlinePaymentsEnabled
+            ? `Pay ${formatInr(payable)} for ${monthLabel(cycle.periodStart, cycle.periodEnd)}`
+            : 'Online academy-fee payments are not available yet'}
+          disabled={busy || !canPay}
           onPress={() => onPay(cycle)}
-          style={({ pressed }) => [styles.payButton, pressed && styles.pressed, busy && styles.disabled]}>
+          style={({ pressed }) => [styles.payButton, pressed && canPay && styles.pressed, (busy || !canPay) && styles.disabled]}>
           {busy ? <ActivityIndicator color="#211305" size="small" /> : <SymbolView name={{ android: 'payments', ios: 'creditcard.fill', web: 'payments' }} size={19} tintColor="#211305" />}
-          <Text style={styles.payButtonText}>{busy ? 'OPENING GOOGLE PLAY...' : `PAY ${formatInr(checkoutAmount)}`}</Text>
+          <Text style={styles.payButtonText}>{busy ? 'OPENING SECURE CHECKOUT...' : canPay ? `PAY ${formatInr(payable)}` : 'ONLINE PAYMENTS COMING SOON'}</Text>
         </Pressable>
       ) : status === 'PAID' ? (
         <View style={styles.paidNote}>
@@ -196,7 +193,7 @@ export default function StudentFeesScreen() {
   const [context, setContext] = useState<AcademyBillingContext | null>(null);
   const [cycles, setCycles] = useState<StudentBillingCycle[]>([]);
   const [payments, setPayments] = useState<StudentPayment[]>([]);
-  const [feeQuotes, setFeeQuotes] = useState<Record<number, GooglePlayFeeQuote>>({});
+  const [onlinePaymentsEnabled, setOnlinePaymentsEnabled] = useState(false);
   const [mode, setMode] = useState<ViewMode>('BILLING');
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('ALL');
   const [loading, setLoading] = useState(true);
@@ -210,20 +207,15 @@ export default function StudentFeesScreen() {
     setError(null);
     try {
       const nextContext = await getAcademyBillingContext();
-      const [nextCycles, nextPayments] = await Promise.all([
+      const [nextCycles, nextPayments, paymentConfiguration] = await Promise.all([
         fetchStudentBillingCycles(nextContext),
         fetchStudentPaymentHistory(nextContext),
+        fetchStudentFeePaymentConfiguration(nextContext),
       ]);
       setContext(nextContext);
       setCycles(nextCycles);
       setPayments(nextPayments);
-      const quotes = await Promise.all(nextCycles.filter(isPayableCycle).map((cycle) =>
-        fetchStudentGooglePlayFeeQuote(
-          { accessToken: nextContext.accessToken, origin: nextContext.origin },
-          cycle.id,
-        ).catch(() => null),
-      ));
-      setFeeQuotes(Object.fromEntries(quotes.filter((quote): quote is GooglePlayFeeQuote => Boolean(quote)).map((quote) => [quote.cycleId, quote])));
+      setOnlinePaymentsEnabled(paymentConfiguration.onlinePaymentsEnabled);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load your fees.');
     } finally {
@@ -236,29 +228,22 @@ export default function StudentFeesScreen() {
     void loadFees();
   }, [loadFees]));
 
-  const googlePlay = useGooglePlayCheckout({
-    onCompleted: async () => {
-      setPayingCycleId(null);
-      await loadFees(true);
-    },
-    onError: (message) => {
-      setPayingCycleId(null);
-      setError(paymentErrors[message] || message);
-    },
-  });
-  const { connected: playConnected, fetchProducts: fetchPlayProducts } = googlePlay;
-
   useEffect(() => {
-    if (!playConnected) return;
-    const skus = [...new Set(Object.values(feeQuotes).map((quote) => `chessperfect_fee_inr_${quote.androidPayableInr}`))];
-    if (!skus.length) return;
-    void fetchPlayProducts({ skus, type: 'in-app' }).catch(() => undefined);
-  }, [feeQuotes, fetchPlayProducts, playConnected]);
+    let previousState = AppState.currentState;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (previousState !== 'active' && nextState === 'active') {
+        setPayingCycleId(null);
+        void loadFees(true);
+      }
+      previousState = nextState;
+    });
+    return () => subscription.remove();
+  }, [loadFees]);
 
   const totalDue = useMemo(() => cycles.filter(isPayableCycle).reduce(
-    (sum, cycle) => sum + (feeQuotes[cycle.id]?.androidPayableInr ?? payableAmount(cycle)),
+    (sum, cycle) => sum + payableAmount(cycle),
     0,
-  ), [cycles, feeQuotes]);
+  ), [cycles]);
   const paidCount = useMemo(() => cycles.filter((cycle) => displayCycleStatus(cycle) === 'PAID').length, [cycles]);
   const filteredPayments = useMemo(
     () => historyFilter === 'ALL' ? payments : payments.filter((payment) => payment.status === historyFilter),
@@ -266,21 +251,17 @@ export default function StudentFeesScreen() {
   );
 
   async function payCycle(cycle: StudentBillingCycle) {
-    if (!context || payingCycleId !== null) return;
+    if (!context || payingCycleId !== null || !onlinePaymentsEnabled) return;
     setPayingCycleId(cycle.id);
     setError(null);
     try {
-      const authorization = { accessToken: context.accessToken, origin: context.origin };
-      const checkout = await createStudentGooglePlayCheckout(authorization, cycle.id);
-      setFeeQuotes((current) => ({
-        ...current,
-        [cycle.id]: { cycleId: cycle.id, websitePayableInr: payableAmount(cycle), androidPayableInr: checkout.expectedAmountInr },
-      }));
-      await googlePlay.begin(checkout, authorization);
+      const checkoutUrl = await createStudentFeeCheckout(context, cycle.id);
+      await WebBrowser.openBrowserAsync(checkoutUrl);
     } catch (caught) {
       const raw = caught instanceof Error ? caught.message : 'PAYMENT_INITIALIZATION_FAILED';
       setError(paymentErrors[raw] || raw || 'We could not start the payment. Please try again.');
       if (raw === 'CYCLE_ALREADY_PAID' || raw === 'ZERO_FEE_MARKED_PAID') void loadFees(true);
+    } finally {
       setPayingCycleId(null);
     }
   }
@@ -320,11 +301,9 @@ export default function StudentFeesScreen() {
 
               {mode === 'BILLING' ? (
                 cycles.length ? (
-                  <View style={styles.cards}>{cycles.map((cycle) => {
-                    const quote = feeQuotes[cycle.id];
-                    const product = quote ? googlePlay.products.find((item) => item.id === `chessperfect_fee_inr_${quote.androidPayableInr}`) : undefined;
-                    return <BillingCard busy={payingCycleId === cycle.id} cycle={cycle} googlePlayAmount={quote?.androidPayableInr} googlePlayDisplayPrice={product?.displayPrice} key={cycle.id} onPay={payCycle} />;
-                  })}</View>
+                  <View style={styles.cards}>{cycles.map((cycle) => (
+                    <BillingCard busy={payingCycleId === cycle.id} cycle={cycle} key={cycle.id} onlinePaymentsEnabled={onlinePaymentsEnabled} onPay={payCycle} />
+                  ))}</View>
                 ) : (
                   <View style={styles.emptyPanel}><SymbolView name={{ android: 'receipt_long', ios: 'doc.text.fill', web: 'receipt_long' }} size={38} tintColor={colors.goldLight} /><Text style={styles.emptyTitle}>No billing cycles available</Text><Text style={styles.stateText}>Your academy has not generated a fee cycle for the active enrollment.</Text></View>
                 )
@@ -341,7 +320,9 @@ export default function StudentFeesScreen() {
                 </>
               )}
 
-              <Text style={styles.paymentNote}>Payments in the Android app are securely processed by Google Play. The amount shown on the Google Play confirmation screen is the final app price.</Text>
+              <Text style={styles.paymentNote}>{onlinePaymentsEnabled
+                ? 'Academy tuition fees are securely processed through the ChessPerfect payment portal. Player subscriptions are billed separately through Google Play.'
+                : 'Your fee ledger remains available. Online academy-fee collection will be enabled after settlement operations are ready.'}</Text>
             </>
           ) : null}
         </ScrollView>

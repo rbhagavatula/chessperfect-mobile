@@ -2,7 +2,7 @@ import { useIAP, type Purchase } from 'expo-iap';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
-import { ApiError, getJson, getJsonFromOrigin, postAuthorizedJsonFromOrigin } from '@/lib/api';
+import { ApiError, getJson, postAuthorizedJsonFromOrigin } from '@/lib/api';
 import { config } from '@/lib/config';
 import { getSession } from '@/lib/session';
 
@@ -21,8 +21,6 @@ export type GooglePlayPlanProduct = {
 };
 
 export type GooglePlayCatalogue = { playerSubscriptions: GooglePlayPlanProduct[] };
-export type GooglePlayFeeQuote = { androidPayableInr: number; cycleId: number; websitePayableInr: number };
-
 export type BillingAuthorization = { accessToken: string; origin: string };
 
 type PendingPurchase = {
@@ -41,23 +39,6 @@ type VerifiedPurchase = {
 
 export function fetchGooglePlayCatalogue(accessToken: string) {
   return getJson<GooglePlayCatalogue>('/api/v1/mobile/google-play/catalogue', accessToken);
-}
-
-export function fetchStudentGooglePlayFeeQuote(authorization: BillingAuthorization, cycleId: number) {
-  return getJsonFromOrigin<GooglePlayFeeQuote>(
-    `/api/v1/mobile/google-play/student-fees/cycles/${cycleId}/quote`,
-    authorization.origin,
-    authorization.accessToken,
-  );
-}
-
-export function createStudentGooglePlayCheckout(authorization: BillingAuthorization, cycleId: number) {
-  return postAuthorizedJsonFromOrigin<GooglePlayCheckout>(
-    `/api/v1/mobile/google-play/student-fees/cycles/${cycleId}/checkout`,
-    authorization.origin,
-    {},
-    authorization.accessToken,
-  );
 }
 
 export async function createPlayerGooglePlayCheckout(planCode: string) {

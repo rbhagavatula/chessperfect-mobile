@@ -26,6 +26,6 @@ ChessPerfect contains authenticated and academy-specific functionality. Create d
 2. Use one of the credentials supplied in the Play Console.
 3. Player features are available from **Play**, **Learn** and **My Account**.
 4. Academy features are available from **My Academy**. Use the Student or Coach account for role-specific pages.
-5. Google Play Billing products are visible only in Play-installed builds and with products active in this application.
+5. Google Play Billing player-plan products are visible only in Play-installed builds and with products active in this application. Academy tuition/class fees are not Google Play products.
 
 Never commit real passwords to this repository. Replace the placeholders only inside the secure Play Console form.

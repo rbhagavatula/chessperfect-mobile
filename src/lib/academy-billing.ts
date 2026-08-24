@@ -1,3 +1,5 @@
+import * as Linking from 'expo-linking';
+
 import { ApiError, getJsonFromOrigin, postAuthorizedJsonFromOrigin } from '@/lib/api';
 import { academyOrigin, getSelectedAcademy, type SelectedAcademy } from '@/lib/academy';
 import { getAcademyAccessSession } from '@/lib/academy-session';
@@ -40,6 +42,10 @@ export type AcademyBillingContext = {
   origin: string;
 };
 
+export type StudentFeePaymentConfiguration = {
+  onlinePaymentsEnabled: boolean;
+};
+
 type PayIntentResponse = { publicId: string };
 
 export async function getAcademyBillingContext(): Promise<AcademyBillingContext> {
@@ -67,11 +73,16 @@ export function fetchStudentPaymentHistory(context: AcademyBillingContext, statu
   );
 }
 
+export function fetchStudentFeePaymentConfiguration(context: AcademyBillingContext) {
+  return getJsonFromOrigin<StudentFeePaymentConfiguration>(
+    '/api/v1/academy/student/fees/payment-configuration',
+    context.origin,
+    context.accessToken,
+  );
+}
+
 export async function createStudentFeeCheckout(context: AcademyBillingContext, cycleId: number) {
-  // The approved payment portal returns to the tenant web Fees route. When the
-  // student closes the secure browser, the native screen refreshes from the
-  // same billing API and reflects the finalized payment.
-  const returnUrl = `${context.origin}/fees`;
+  const returnUrl = Linking.createURL('academy/fees');
   const response = await postAuthorizedJsonFromOrigin<PayIntentResponse>(
     `/api/v1/academy/student/fees/cycles/${cycleId}/pay-intent`,
     context.origin,

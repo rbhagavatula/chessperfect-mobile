@@ -59,7 +59,7 @@ Welcome to ChessPerfect for Android.
 - Solve personalised puzzles and analyse positions.
 - Access academy studies, classes, attendance and account information.
 - Join live classes with the board available alongside the meeting.
-- Purchase eligible plans and academy fees securely through Google Play.
+- Purchase eligible player plans securely through Google Play and view academy fee ledgers, payment status and receipts.
 
 ## Testing release 1.0.1 notes
 
