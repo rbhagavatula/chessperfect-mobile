@@ -9,6 +9,7 @@ node_modules/
 .expo-*-validation/
 dist/
 dist-android/
+dist-android-check/
 dist-video-check/
 dist-release-check/
 web-build/
